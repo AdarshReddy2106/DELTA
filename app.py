@@ -162,7 +162,7 @@ ORDER_COLS = [
     "order_id", "order_status", "order_purchase_timestamp", "purchase_date", "purchase_year",
     "purchase_month", "purchase_dayofweek", "purchase_hour", "customer_state", "seller_state",
     "primary_category", "total_price", "total_freight", "total_weight_g", "freight_ratio",
-    "item_count", "max_installments", "primary_payment_type", "review_score", "has_comment",
+    "item_count", "max_installments", "primary_payment_type", "review_score", "has_comment", "total_volume_cm3",
     "approval_hours", "seller_handling_days", "carrier_transit_days", "total_delivery_days",
     "estimated_delivery_days", "days_late", "seller_shipped_late", "is_late", "lateness_bucket",
     "distance_km", "is_cross_state",
@@ -221,6 +221,7 @@ PAGES = [
     "6. Geography & network",
     "7. Association rules",
     "8. Sellers: reduction & clustering",
+    "9. Clustering algorithms",
     "Challenges & decisions",
 ]
 with st.sidebar:
@@ -361,12 +362,12 @@ def page_overview():
         ["Data processing", "Joins without row multiplication, geo cleaning, derived delivery stages, smoothing", "1, 2"],
         ["Statistics of data", "Descriptives, skewness, hypothesis tests, effect sizes, correlation", "3"],
         ["Transformations", "Log, square root, Box-Cox, Yeo-Johnson, scaling, encodings", "3"],
-        ["Outliers and missing values", "IQR vs Z-score, winsorizing, MNAR comments, imputation experiment", "4"],
+        ["Outliers and missing values", "IQR vs Z-score, scatter plots, winsorizing, MNAR comments, comment model, imputation experiment", "4"],
         ["Text mining", "Portuguese TF-IDF that keeps negations", "5"],
         ["Graph analysis", "State shipping network, PageRank, betweenness, route risk", "6"],
         ["Association rules", "FP-Growth / Apriori on order risk profiles and category baskets", "7"],
-        ["Dimensionality reduction", "PCA, t-SNE, autoencoder", "8"],
-        ["Clustering", "K-Means, Ward, DBSCAN, Mean-Shift, OPTICS, seller tiers", "8"],
+        ["Dimensionality reduction", "PCA (and its SVD equivalence), t-SNE at five perplexities, autoencoder", "8"],
+        ["Clustering", "K-Means, Ward, DBSCAN, Mean-Shift, OPTICS, seller tiers", "8, 9"],
     ], columns=["Topic", "What we did", "Section"]))
 
 
@@ -792,6 +793,60 @@ def treatment_table(x, k):
                         columns=["Treatment", "Count", "Mean", "Median", "Std dev", "Skewness"])
 
 
+SCATTER_PAIRS = {
+    "Orders": [("total_price", "total_freight"), ("total_weight_g", "total_volume_cm3"), ("total_delivery_days", "days_late")],
+    "Items": [("price", "freight_value"), ("product_weight_g", "product_volume_cm3")],
+    "Products": [("product_weight_g", "product_volume_cm3"), ("product_length_cm", "product_width_cm")],
+}
+SCATTER_LABELS = {
+    "total_price": "Order price (R$)", "total_freight": "Freight (R$)", "total_weight_g": "Weight (g)",
+    "total_volume_cm3": "Volume (cm3)", "total_delivery_days": "Delivery time (d)", "days_late": "Days late",
+    "price": "Item price (R$)", "freight_value": "Item freight (R$)", "product_weight_g": "Product weight (g)",
+    "product_volume_cm3": "Product volume (cm3)", "product_length_cm": "Product length (cm)",
+    "product_width_cm": "Product width (cm)",
+}
+
+
+def scatter_frame(dataset):
+    """Orders follow the sidebar filters; items and products are the cleaned tables from Notebook 03."""
+    if dataset == "Orders":
+        return filt
+    return load_csv({"Items": "cleaned_items.csv", "Products": "cleaned_products.csv"}[dataset])
+
+
+def iqr_flags(s, k):
+    q1, q3 = s.quantile([0.25, 0.75])
+    return (s < q1 - k * (q3 - q1)) | (s > q3 + k * (q3 - q1))
+
+
+@st.cache_data(show_spinner=False)
+def comment_model(df):
+    """Notebook 03, section 4.6: does review score + days late predict that a comment exists?"""
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.metrics import accuracy_score, confusion_matrix, f1_score, precision_score, recall_score
+    from sklearn.model_selection import train_test_split
+    from sklearn.pipeline import make_pipeline
+    from sklearn.preprocessing import StandardScaler
+
+    d = df.dropna(subset=["review_score", "days_late", "has_comment"])
+    y = d["has_comment"].astype(int)
+    if len(d) < 200 or y.nunique() < 2 or y.value_counts().min() < 20:
+        return None
+    X = d[["review_score", "days_late"]]
+    Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.20, random_state=42, stratify=y)
+    model = make_pipeline(StandardScaler(), LogisticRegression(max_iter=1000, class_weight="balanced"))
+    model.fit(Xtr, ytr)
+    pred = model.predict(Xte)
+    coef = model.named_steps["logisticregression"].coef_[0]
+    return dict(
+        n=len(d), n_test=len(yte),
+        accuracy=accuracy_score(yte, pred), precision=precision_score(yte, pred, zero_division=0),
+        recall=recall_score(yte, pred, zero_division=0), f1=f1_score(yte, pred, zero_division=0),
+        cm=confusion_matrix(yte, pred), coef=dict(zip(["review_score", "days_late"], coef)),
+        baseline=max(yte.mean(), 1 - yte.mean()),
+    )
+
+
 def page_outliers():
     page_intro(
         "4. Outliers & missing values",
@@ -847,6 +902,77 @@ def page_outliers():
         fig.update_traces(marker=dict(size=3, opacity=0.35, color=ORANGE), line=dict(width=1.5), fillcolor="rgba(47,111,159,0.25)")
         style(fig, 360, xaxis=dict(title=NUM_LABELS[var], type="log" if use_log else "linear"), yaxis=dict(title="", showgrid=False))
         show(fig)
+
+    st.markdown("## Scatter plots: unusual combinations")
+    st.write(
+        "A value can look normal on each axis and still be odd in combination, such as a light parcel with a very "
+        "high freight bill. Pick a pair of variables: points beyond the IQR fence (multiplier from the slider above) "
+        "on one or both axes are coloured."
+    )
+    c1, c2, c3, c4 = st.columns([1, 2.4, 1, 1.2])
+    ds = c1.selectbox("Table", list(SCATTER_PAIRS))
+    frame = scatter_frame(ds)
+    pairs = [p for p in SCATTER_PAIRS[ds] if frame is not None and all(c in frame.columns for c in p)]
+    if not pairs:
+        st.info(f"No usable columns for {ds.lower()} were found in PROCESSED_DATA.")
+    else:
+        def lab(c):
+            return SCATTER_LABELS.get(c, c)
+
+        pi = c2.selectbox("Pair of variables", list(range(len(pairs))),
+                          format_func=lambda i: f"{lab(pairs[i][0])} vs {lab(pairs[i][1])}")
+        a, b = pairs[pi]
+        d = frame[[a, b]].apply(pd.to_numeric, errors="coerce").dropna()
+        can_log = bool(len(d)) and bool((d >= 0).all().all())
+        log_axes = c3.checkbox("Log axes", value=can_log, disabled=not can_log,
+                               help="Only for non-negative variables; zeros cannot be drawn on a log axis.")
+        colour = c4.checkbox("Colour IQR outliers", value=True)
+        if d.empty:
+            st.info("No complete rows for this pair.")
+        else:
+            fx, fy = iqr_flags(d[a], k), iqr_flags(d[b], k)
+            both, one = fx & fy, fx ^ fy
+            m = st.columns(4)
+            m[0].metric("Points analysed", fmt_int(len(d)))
+            m[1].metric(f"Outside fence on {lab(a)} only", f"{(fx & ~fy).sum():,}")
+            m[2].metric(f"Outside fence on {lab(b)} only", f"{(fy & ~fx).sum():,}")
+            m[3].metric("Outside on both", f"{both.sum():,}")
+
+            plot = d.sample(min(len(d), 5000), random_state=42)
+            cat = pd.Series("Within fences", index=d.index)
+            cat[one] = "Outside on one variable"
+            cat[both] = "Outside on both"
+            cat = cat.loc[plot.index]
+            if log_axes:
+                keep = (plot[a] > 0) & (plot[b] > 0)
+                dropped = int((~keep).sum())
+                plot, cat = plot[keep], cat[keep]
+            else:
+                dropped = 0
+            fig = go.Figure()
+            groups = [("Within fences", "#8fb3cf", 0.35), ("Outside on one variable", ORANGE, 0.6), ("Outside on both", RED, 0.8)]
+            for name, colr, op in groups:
+                sel = (cat == name) if colour else (cat == cat)
+                if not colour and name != "Within fences":
+                    continue
+                fig.add_scatter(x=plot.loc[sel, a], y=plot.loc[sel, b], mode="markers", name=name if colour else "Orders",
+                                marker=dict(size=5, color=colr, opacity=op), hoverinfo="skip" if len(plot) > 4000 else None)
+            style(fig, 420, legend=colour,
+                  xaxis=dict(title=lab(a), type="log" if log_axes else "linear", showgrid=True, gridcolor=GRID),
+                  yaxis=dict(title=lab(b), type="log" if log_axes else "linear"))
+            show(fig)
+            st.caption(
+                f"A random sample of up to 5,000 points is drawn; fences and counts use all {len(d):,} rows. "
+                + (f"{dropped} zero values are left off the log axes. " if dropped else "")
+                + ("Orders follow the sidebar filters; items and products do not." if ds == "Orders" else
+                   "Items and products come from the cleaned tables and are not affected by the sidebar filters.")
+            )
+    callout(
+        "A visual check, not an automatic count",
+        "Scatter plots show which extreme points are expected (big orders are heavy and bulky) and which are odd "
+        "(a heavy, cheap-to-ship parcel). Points outside the fence on both axes are usually consistent with each "
+        "other; points outside on one axis only deserve a closer look. They are candidates to investigate, not errors.",
+    )
 
     st.markdown("## What happens if we treat the outliers?")
     tt = treatment_table(filt[var], k)
@@ -926,6 +1052,56 @@ def page_outliers():
             "1-star reviewers comment far more often than 4-5 star reviewers, so a text analysis of comments "
             "over-represents complaints. We keep this in mind when reading the text-mining results.",
         )
+
+    st.markdown("## Can we predict who writes a comment?")
+    st.write(
+        "A logistic regression asks whether review score and days late carry enough information to predict that a "
+        "comment exists (standardized inputs, balanced class weights, 80/20 split, as in Notebook 03)."
+    )
+    cmres = comment_model(filt[["review_score", "days_late", "has_comment"]])
+    if cmres is None:
+        st.info("Not enough complete reviews in the current selection to fit the model.")
+    else:
+        m = st.columns(5)
+        m[0].metric("Accuracy", f"{cmres['accuracy']:.3f}")
+        m[1].metric("Precision", f"{cmres['precision']:.3f}")
+        m[2].metric("Recall", f"{cmres['recall']:.3f}")
+        m[3].metric("F1-score", f"{cmres['f1']:.3f}")
+        m[4].metric("Always 'no comment'", f"{cmres['baseline']:.3f}", help="Accuracy of the lazy rule that predicts the majority class for everyone.")
+        c1, c2 = st.columns(2)
+        with c1:
+            header("Confusion matrix (test set)", f"{cmres['n_test']:,} held-out reviews.")
+            cm = cmres["cm"]
+            rows_ = ["Actual: no comment", "Actual: has comment"]
+            cols_ = ["Predicted: no comment", "Predicted: has comment"]
+            fig = go.Figure(go.Heatmap(z=cm, x=cols_, y=rows_, text=[[f"{v:,}" for v in r] for r in cm], texttemplate="%{text}",
+                                       colorscale="Blues", showscale=False, textfont=dict(size=15)))
+            style(fig, 280, yaxis=dict(autorange="reversed", showgrid=False), xaxis=dict(showgrid=False), margin=dict(l=10, r=10, t=10, b=10))
+            show(fig)
+        with c2:
+            header("What the model learned", "Change in log-odds of a comment per one standard deviation.")
+            cf = cmres["coef"]
+            names = ["Review score", "Days late"]
+            vals_ = [cf["review_score"], cf["days_late"]]
+            fig = go.Figure(go.Bar(x=vals_, y=names, orientation="h", marker_color=[BLUE if v < 0 else ORANGE for v in vals_],
+                                   text=[f"{v:+.2f}" for v in vals_], textposition="outside", cliponaxis=False))
+            lim = max(abs(v) for v in vals_) * 1.5 + 0.05
+            style(fig, 280, xaxis=dict(title="Standardized coefficient", range=[-lim, lim], zeroline=True, zerolinecolor=GREY),
+                  yaxis=dict(autorange="reversed", showgrid=False), margin=dict(l=10, r=40, t=10, b=10))
+            show(fig)
+        signs = cmres["coef"]["review_score"] < 0 and cmres["coef"]["days_late"] > 0
+        beat = cmres["accuracy"] > cmres["baseline"]
+        callout(
+            "The direction is clear, the prediction is weak",
+            ("Lower scores and longer delays both raise the odds of a comment, matching the chi-square result above. "
+             if signs else "The coefficient signs are shown above. ")
+            + f"But accuracy is {cmres['accuracy']:.2f} and F1 only {cmres['f1']:.2f}; always guessing 'no comment' "
+            f"would be right {cmres['baseline']:.2f} of the time, so the model "
+            + ("is only slightly better than that. " if beat else "does not beat that simple rule on accuracy (balanced weights trade accuracy for catching commenters). ")
+            + "Whether someone writes a comment depends on much more than score and lateness, which is consistent "
+            "with missing-not-at-random: association, not an easy rule to predict.",
+        )
+        st.caption("With no sidebar filters this reproduces Notebook 03 (accuracy 0.58, F1 0.47, 19,166 test reviews).")
 
     st.markdown("## Imputation experiment")
     st.write(
@@ -1294,16 +1470,45 @@ def pca_summary(X):
 @st.cache_data(show_spinner="Running K-Means for k = 2 ... 10")
 def kmeans_sweep(X):
     from sklearn.cluster import KMeans
-    from sklearn.metrics import silhouette_score
+    from sklearn.metrics import calinski_harabasz_score, davies_bouldin_score, silhouette_score
     rows = []
     for k in range(2, 11):
-        km = KMeans(n_clusters=k, n_init=10, random_state=42).fit(X)
-        rows.append([k, km.inertia_, silhouette_score(X, km.labels_)])
-    return pd.DataFrame(rows, columns=["k", "inertia", "silhouette"])
+        km = KMeans(n_clusters=k, init="k-means++", n_init=20, max_iter=500, random_state=42).fit(X)
+        rows.append([k, km.inertia_, silhouette_score(X, km.labels_),
+                     calinski_harabasz_score(X, km.labels_), davies_bouldin_score(X, km.labels_)])
+    return pd.DataFrame(rows, columns=["k", "inertia", "silhouette", "ch", "db"])
 
 
 def nice(c):
     return c.replace("_", " ").replace("avg ", "average ")
+
+
+@st.cache_data(show_spinner=False)
+def svd_check(X):
+    """PCA by covariance eigen-decomposition vs PCA by SVD of the (already centred) matrix."""
+    n = X.shape[0]
+    _, S, Vt = np.linalg.svd(X - X.mean(axis=0), full_matrices=False)
+    vals, vecs = pca_summary(X)
+    cos = np.abs(np.sum(vecs * Vt.T, axis=0))
+    return vals, S ** 2 / (n - 1), cos
+
+
+TSNE_SCORES = {5: (0.9708, 0.9295), 15: (0.9798, 0.9476), 30: (0.9794, 0.9524), 50: (0.9772, 0.9530), 100: (0.9754, 0.9553)}
+
+
+@st.cache_data(show_spinner="Running t-SNE for this perplexity (several seconds, cached afterwards) ...")
+def tsne_embed(X, perp):
+    from sklearn.manifold import TSNE
+    return TSNE(n_components=2, perplexity=perp, init="pca", learning_rate="auto", max_iter=1000,
+                random_state=42).fit_transform(X)
+
+
+def get_tsne(X, perp):
+    # Perplexity 15 was the notebook's chosen map and is saved in the scorecard, so it needs no recomputation.
+    if perp == 15 and {"tsne_dim1", "tsne_dim2"} <= set(sellers.columns):
+        return sellers[["tsne_dim1", "tsne_dim2"]].values
+    return tsne_embed(X, perp)
+
 
 
 def page_sellers():
@@ -1349,6 +1554,20 @@ def page_sellers():
     style(fig, 560, yaxis=dict(autorange="reversed", showgrid=False), margin=dict(l=10, r=10, t=10, b=10))
     show(fig)
 
+    header("PCA and SVD give the same answer", "Truncated SVD of the standardized matrix is PCA without ever forming the covariance matrix.")
+    ev, sv, cosv = svd_check(X)
+    c1, c2 = st.columns([2, 3])
+    with c1:
+        m1, m2 = st.columns(2)
+        m1.metric("Largest eigenvalue gap", f"{np.max(np.abs(ev - sv)):.1e}", help="max |covariance eigenvalue - sigma^2 / (n-1)| over all 21 components")
+        m2.metric("Smallest |cos| of angle", f"{cosv.min():.6f}", help="1.0 means the PCA direction and the SVD direction are identical (the sign is arbitrary).")
+        st.caption("Computed live from the seller matrix. Differences at the 1e-15 level are floating-point noise.")
+    with c2:
+        table(pd.DataFrame({
+            "Component": [f"PC{i + 1}" for i in range(6)],
+            "Eigenvalue (covariance)": ev[:6], "sigma^2 / (n-1) (SVD)": sv[:6], "|cos| of directions": cosv[:6],
+        }).style.format({"Eigenvalue (covariance)": "{:.4f}", "sigma^2 / (n-1) (SVD)": "{:.4f}", "|cos| of directions": "{:.6f}"}))
+
     st.markdown("## Linear vs non-linear reduction")
     c1, c2 = st.columns(2)
     with c1:
@@ -1376,6 +1595,39 @@ def page_sellers():
         "held-out sellers 16-38% better than PCA at the same size, with its biggest gain at 6 latent dimensions. "
         "Perplexity 15 gave the best local score, so that map is used below.",
     )
+
+    header("t-SNE maps by perplexity", "Low perplexity splits the cloud into small islands, high perplexity smooths it out.")
+    c1, c2 = st.columns([2, 1])
+    perp = c1.radio("Perplexity", list(TSNE_SCORES), index=1, horizontal=True)
+    allfive = c2.checkbox("Show all five side by side", help="Computes the four maps that are not saved (about a minute the first time).")
+    tier_list = [t for t in TIER_COLORS if t in set(sellers["tier"])]
+    if allfive:
+        from plotly.subplots import make_subplots
+        fig = make_subplots(rows=2, cols=3, subplot_titles=[f"Perplexity {p}" for p in TSNE_SCORES], horizontal_spacing=0.05, vertical_spacing=0.12)
+        for i, p in enumerate(TSNE_SCORES):
+            Y = get_tsne(X, p)
+            for t in tier_list:
+                sel = (sellers["tier"] == t).values
+                fig.add_scatter(x=Y[sel, 0], y=Y[sel, 1], mode="markers", name=t, marker=dict(size=3, color=TIER_COLORS[t], opacity=0.6),
+                                showlegend=(i == 0), hoverinfo="skip", row=i // 3 + 1, col=i % 3 + 1)
+        style(fig, 640, legend=True)
+        fig.update_xaxes(showticklabels=False, showgrid=False)
+        fig.update_yaxes(showticklabels=False, showgrid=False)
+        show(fig)
+    else:
+        Y = get_tsne(X, perp)
+        tm = pd.DataFrame({"x": Y[:, 0], "y": Y[:, 1], "tier": sellers["tier"].values})
+        fig = px.scatter(tm, x="x", y="y", color="tier", opacity=0.6, color_discrete_map=TIER_COLORS, category_orders={"tier": tier_list})
+        fig.update_traces(marker=dict(size=4), hoverinfo="skip")
+        style(fig, 420, legend=True, xaxis=dict(title="t-SNE 1", showticklabels=False, showgrid=False), yaxis=dict(title="t-SNE 2", showticklabels=False))
+        show(fig)
+    t10, t30 = TSNE_SCORES[perp]
+    m = st.columns(3)
+    m[0].metric("Trustworthiness (10 neighbours)", f"{t10:.3f}", "best of the five" if perp == 15 else None, delta_color="off")
+    m[1].metric("Trustworthiness (30 neighbours)", f"{t30:.3f}")
+    m[2].metric("2-D PCA baseline (10 / 30)", "0.806 / 0.806")
+    st.caption("Scores are from Notebook 05. Only perplexity 15 is saved in the scorecard; the other maps are re-run here with the notebook's settings "
+               "(PCA initialisation, 1,000 iterations, seed 42). Axes of a t-SNE map have no meaning; only which sellers sit close together does.")
 
     header("Seller map", "Each dot is a seller.")
     c1, c2 = st.columns([1, 1])
@@ -1419,6 +1671,7 @@ def page_sellers():
         ["Mean-Shift (q = 0.25)", 7, "0.333", "96% in one mode", "High silhouette is misleading: 6 tiny outlier groups"],
         ["OPTICS (xi 0.04)", 1, "n/a", "1 cluster, 0% noise", "No density valleys, also in the 6-D latent space"],
     ], columns=["Algorithm", "Clusters", "Silhouette", "Sizes", "Reading"]))
+    st.caption("Each algorithm is examined in detail (validity scores, dendrogram, k-distance plot, bandwidth sweep, reachability plot) on page 9.")
     callout(
         "Sellers form a continuum, so we segment by business rules",
         "Silhouettes never exceed 0.19 for balanced clusterings, and the density methods (DBSCAN, OPTICS) find a single "
@@ -1467,6 +1720,317 @@ def page_sellers():
     tbl["seller_id"] = tbl["seller_id"].str[:8] + "..."
     table(tbl.rename(columns={c: nice(c) for c in show_cols}).style.format(
         {"late rate": "{:.0%}", "average review score": "{:.2f}", "average handling days": "{:.1f}", "reliability score": "{:.0f}", "total orders": "{:,.0f}"}))
+
+
+# ===========================================================================
+# 9. CLUSTERING ALGORITHMS
+# ===========================================================================
+MS_SWEEP = pd.DataFrame(
+    [[0.10, 3.931, 7, 90.8, 0.2408], [0.15, 4.231, 9, 93.6, 0.2571], [0.20, 4.479, 9, 93.5, 0.2546],
+     [0.25, 4.701, 7, 96.1, 0.3328], [0.30, 4.909, 8, 95.6, 0.3194]],
+    columns=["Quantile", "Bandwidth", "Modes found", "Largest mode (%)", "Silhouette"],
+)
+MS_SIZES = [2975, 86, 14, 9, 7, 3, 1]  # q = 0.25; the last mode is what remains of 3,095 after the six listed in the notebook
+CLUSTER_METRICS = [("Silhouette", "silhouette", "higher"), ("Calinski-Harabasz", "ch", "higher"), ("Davies-Bouldin", "db", "lower")]
+
+
+@st.cache_data(show_spinner=False)
+def ward_linkage(X):
+    from scipy.cluster.hierarchy import linkage
+    return linkage(X, method="ward", metric="euclidean")
+
+
+@st.cache_data(show_spinner="Scoring Ward cuts for k = 2 ... 10")
+def ward_sweep(X):
+    from scipy.cluster.hierarchy import fcluster
+    from sklearn.metrics import calinski_harabasz_score, davies_bouldin_score, silhouette_score
+    Z = ward_linkage(X)
+    rows = []
+    for k in range(2, 11):
+        lab = fcluster(Z, k, criterion="maxclust")
+        rows.append([k, silhouette_score(X, lab), calinski_harabasz_score(X, lab), davies_bouldin_score(X, lab)])
+    return pd.DataFrame(rows, columns=["k", "silhouette", "ch", "db"])
+
+
+@st.cache_data(show_spinner=False)
+def kdistance(X, m):
+    from sklearn.neighbors import NearestNeighbors
+    d, _ = NearestNeighbors(n_neighbors=m).fit(X).kneighbors(X)
+    return np.sort(d[:, -1])
+
+
+def find_knee(sorted_d):
+    """Point of maximum perpendicular distance from the chord (same rule as Notebook 05)."""
+    pts = np.vstack((np.arange(len(sorted_d)), sorted_d)).T
+    v = pts[-1] - pts[0]
+    v = v / np.linalg.norm(v)
+    rel = pts - pts[0]
+    dist = np.linalg.norm(rel - np.outer(rel @ v, v), axis=1)
+    i = int(np.argmax(dist))
+    return i, float(sorted_d[i])
+
+
+@st.cache_data(show_spinner=False)
+def dbscan_run(X, eps, m):
+    from sklearn.cluster import DBSCAN
+    db = DBSCAN(eps=eps, min_samples=m).fit(X)
+    core = np.zeros(len(db.labels_), dtype=bool)
+    core[db.core_sample_indices_] = True
+    return db.labels_, core
+
+
+@st.cache_data(show_spinner="Fitting OPTICS on all 3,095 sellers (the slowest step on this page, cached afterwards) ...")
+def optics_run(X):
+    from sklearn.cluster import OPTICS
+    op = OPTICS(min_samples=25, max_eps=np.inf, metric="euclidean", cluster_method="xi", xi=0.04,
+                min_cluster_size=0.015, n_jobs=-1).fit(X)
+    return op.reachability_, op.core_distances_, op.ordering_, op.labels_
+
+
+def page_clustering():
+    page_intro(
+        "9. Clustering algorithms",
+        "Notebook 05 - K-Means, Ward, DBSCAN, Mean-Shift, OPTICS under the microscope",
+        "Page 8 gives the verdict (sellers form a continuum). This page shows the evidence for each algorithm on the same "
+        "standardized 21-feature seller matrix: validity scores, the dendrogram, the DBSCAN k-distance curve, the Mean-Shift "
+        "bandwidth sweep and the OPTICS reachability plot.",
+    )
+    if sellers is None or not all(c in sellers.columns for c in FEATURES):
+        st.info("seller_scorecard.csv was not found or is missing seller feature columns.")
+        return
+    X = seller_matrix(sellers)
+    n = len(X)
+    vals, vecs = pca_summary(X)
+    pcs = X @ vecs[:, :2]
+
+    # ------------------------------------------------------------------ validity scores
+    st.markdown("## Three scores for choosing k")
+    st.write(
+        "Silhouette and Calinski-Harabasz are better when higher, Davies-Bouldin when lower. "
+        "If the three scores recommend different k, the data has no single natural number of groups."
+    )
+    km = kmeans_sweep(X)
+    wd = ward_sweep(X)
+    fig = make_subplots_scores(km, wd)
+    show(fig)
+    picks = {}
+    for algo, df in (("K-Means", km), ("Ward", wd)):
+        picks[algo] = {
+            name: int(df.loc[df[col].idxmax() if better == "higher" else df[col].idxmin(), "k"])
+            for name, col, better in CLUSTER_METRICS
+        }
+    pk = pd.DataFrame(picks).T.reset_index().rename(columns={"index": "Algorithm"})
+    pk.columns = ["Algorithm"] + [f"Best k by {c}" for c in pk.columns[1:]]
+    table(pk)
+    disagree = any(len(set(v.values())) > 1 for v in picks.values())
+    callout(
+        "The scores do not agree on one k" if disagree else "The scores agree on k",
+        ("The scores recommend different values of k (table above), and even the best silhouette stays low: "
+         f"{km['silhouette'].max():.2f} for K-Means and {wd['silhouette'].max():.2f} for Ward, where 0.5 or more would mean clear structure. "
+         "That is another sign of a continuum rather than separate seller groups.")
+        if disagree else
+        (f"All three scores point at the same k for each algorithm, but the best silhouette is only {km['silhouette'].max():.2f} (K-Means) "
+         f"and {wd['silhouette'].max():.2f} (Ward), which is weak structure."),
+    )
+    with st.expander("See the numbers"):
+        t = km.rename(columns={"inertia": "K-Means inertia", "silhouette": "K-Means silhouette", "ch": "K-Means CH", "db": "K-Means DB"}).merge(
+            wd.rename(columns={"silhouette": "Ward silhouette", "ch": "Ward CH", "db": "Ward DB"}), on="k")
+        table(t.style.format({c: "{:.3f}" for c in t.columns if c != "k"} | {"K-Means inertia": "{:,.0f}", "K-Means CH": "{:.1f}", "Ward CH": "{:.1f}"}))
+
+    # ------------------------------------------------------------------ Ward
+    st.markdown("## Ward hierarchical clustering")
+    st.write(
+        "Ward merges, at each step, the two groups whose union increases the total within-group variance the least. "
+        "The dendrogram shows the last 30 merges (the number in brackets is how many sellers a branch holds); "
+        "the red line is where the tree is cut."
+    )
+    k_w = st.slider("Cut the tree into k clusters", 2, 10, 3, key="ward_k")
+    from scipy.cluster.hierarchy import dendrogram, fcluster
+    Z = ward_linkage(X)
+    dd = dendrogram(Z, truncate_mode="lastp", p=30, no_plot=True)
+    xs, ys = [], []
+    for ic, dc in zip(dd["icoord"], dd["dcoord"]):
+        xs += list(ic) + [None]
+        ys += list(dc) + [None]
+    cut = float((Z[-k_w, 2] + Z[-(k_w - 1), 2]) / 2)
+    fig = go.Figure(go.Scatter(x=xs, y=ys, mode="lines", line=dict(color=BLUE, width=1.6), hoverinfo="skip"))
+    fig.add_hline(y=cut, line_dash="dash", line_color=RED, annotation_text=f"cut for k = {k_w}", annotation_position="top right")
+    style(fig, 400, xaxis=dict(title="Branches (sellers per branch)", tickmode="array", tickvals=[5 + 10 * i for i in range(len(dd["ivl"]))],
+                               ticktext=dd["ivl"], tickangle=-60, showgrid=False),
+          yaxis=dict(title="Ward merge distance"))
+    show(fig)
+    lab = fcluster(Z, k_w, criterion="maxclust")
+    sizes = pd.Series(lab).value_counts().sort_values(ascending=False)
+    c1, c2 = st.columns([3, 2])
+    with c1:
+        header(f"Cluster sizes at k = {k_w}")
+        fig = go.Figure(go.Bar(x=[f"Cluster {i + 1}" for i in range(len(sizes))], y=sizes.values / n * 100, marker_color=BLUE,
+                               text=[f"{v:,}  ({v / n * 100:.0f}%)" for v in sizes.values], textposition="outside", cliponaxis=False))
+        style(fig, 300, yaxis=dict(title="% of sellers", range=[0, sizes.max() / n * 100 * 1.25]))
+        show(fig)
+    with c2:
+        row = wd[wd["k"] == k_w].iloc[0]
+        m1, m2 = st.columns(2)
+        m1.metric("Silhouette", f"{row['silhouette']:.3f}")
+        m2.metric("Davies-Bouldin", f"{row['db']:.2f}", help="Lower is better.")
+        st.metric("Calinski-Harabasz", f"{row['ch']:.0f}")
+        top = ", ".join(f"{Z[-i, 2]:.1f}" for i in range(1, 6))
+        callout("Reading the tree",
+                "A natural number of groups would show as one very long vertical stretch with no merges. Distances of the last five "
+                f"merges (top first): {top}. At k = 3 the split is about 51% / 40% / 9% in the notebook, very different from "
+                "K-Means (5% / 40% / 55%), so the two methods do not agree on what the groups are.")
+
+    # ------------------------------------------------------------------ DBSCAN
+    st.markdown("## DBSCAN: density-based clusters")
+    st.write(
+        "DBSCAN needs a radius (eps) and a minimum neighbour count (minPts). The rule of thumb minPts = 2 x dimensions gives 42. "
+        "Sorting every seller's distance to its 42nd neighbour gives the k-distance curve; the knee suggests eps."
+    )
+    c1, c2 = st.columns([1, 1])
+    minpts = int(c1.number_input("minPts", 5, 100, 42, 1))
+    kd = kdistance(X, minpts)
+    knee_i, knee_eps = find_knee(kd)
+    eps = float(c2.slider("eps", 2.0, 8.0, 4.37, 0.01, help="4.37 is the value used in the notebook (80% of the knee value)."))
+    c1, c2 = st.columns([3, 2])
+    with c1:
+        header("k-distance curve", "Sellers sorted by distance to their neighbour number minPts.")
+        fig = go.Figure(go.Scatter(x=np.arange(n), y=kd, mode="lines", line=dict(color=BLUE, width=2.5), hoverinfo="skip"))
+        fig.add_scatter(x=[knee_i], y=[knee_eps], mode="markers", marker=dict(size=10, color=ORANGE), name="Knee")
+        fig.add_hline(y=eps, line_dash="dash", line_color=RED, annotation_text=f"eps = {eps:.2f}", annotation_position="top left")
+        style(fig, 340, xaxis=dict(title="Sellers (sorted)"), yaxis=dict(title=f"Distance to neighbour {minpts}"))
+        show(fig)
+        st.caption(f"Detected knee: eps = {knee_eps:.2f} (orange dot).")
+    lab_db, core = dbscan_run(X, eps, minpts)
+    noise = lab_db == -1
+    border = ~core & ~noise
+    n_clu = len(set(lab_db)) - (1 if -1 in lab_db else 0)
+    with c2:
+        m1, m2 = st.columns(2)
+        m1.metric("Clusters found", n_clu)
+        m2.metric("Noise", f"{noise.sum():,}", f"{noise.mean() * 100:.1f}%", delta_color="off")
+        m3, m4 = st.columns(2)
+        m3.metric("Core points", f"{core.sum():,}", f"{core.mean() * 100:.1f}%", delta_color="off")
+        m4.metric("Border points", f"{border.sum():,}", f"{border.mean() * 100:.1f}%", delta_color="off")
+        st.caption("Core: at least minPts neighbours within eps. Border: within eps of a core point but not core itself. Noise: neither.")
+
+    header("Where the core, border and noise points sit", "First two principal components.")
+    fig = go.Figure()
+    for name, mask_, colr, sz in (("Core", core, "#8fb3cf", 4), ("Border", border, ORANGE, 5), ("Noise", noise, RED, 6)):
+        fig.add_scatter(x=pcs[mask_, 0], y=pcs[mask_, 1], mode="markers", name=f"{name} ({mask_.sum():,})",
+                        marker=dict(size=sz, color=colr, opacity=0.65), hoverinfo="skip")
+    style(fig, 400, legend=True, xaxis=dict(title="PC1", showgrid=True, gridcolor=GRID), yaxis=dict(title="PC2"))
+    show(fig)
+
+    header("Is the single cluster an accident of eps?", "The same minPts at five radii around the knee.")
+    rows = []
+    for f in (0.65, 0.80, 0.90, 1.00, 1.15):
+        e = round(knee_eps * f, 2)
+        lb, _ = dbscan_run(X, e, minpts)
+        rows.append([e, len(set(lb)) - (1 if -1 in lb else 0), int((lb == -1).sum()), (lb == -1).mean()])
+    sweep = pd.DataFrame(rows, columns=["eps", "Clusters", "Noise sellers", "Noise share"])
+    table(sweep.style.format({"eps": "{:.2f}", "Noise sellers": "{:,}", "Noise share": "{:.1%}"}))
+    one = bool((sweep["Clusters"] <= 1).all())
+    callout(
+        "One blob at every radius" if one else "The number of clusters changes with eps",
+        ("Every eps gives a single cluster; widening it only absorbs more of the noise points into that one cluster. "
+         "The notebook found the same in the 6-D autoencoder space (eps 2.20, minPts 12: 1 cluster, 4.4% noise). "
+         "There is no density valley to separate groups of sellers.")
+        if one else
+        "More than one cluster appears at some radii. Check the noise share: clusters that only exist at one eps are fragile.",
+    )
+
+    # ------------------------------------------------------------------ Mean-Shift
+    st.markdown("## Mean-Shift: modes of the density")
+    st.write(
+        "Mean-Shift slides a window of radius h (the bandwidth) uphill until it reaches a density peak; every seller that "
+        "ends at the same peak forms one cluster. The bandwidth is set from a quantile of pairwise distances."
+    )
+    c1, c2 = st.columns(2)
+    with c1:
+        header("Modes found and size of the biggest one", "Each bar is the share of sellers in the largest mode.")
+        fig = go.Figure(go.Bar(x=[f"q = {q:.2f}" for q in MS_SWEEP["Quantile"]], y=MS_SWEEP["Largest mode (%)"],
+                               marker_color=[RED if q == 0.25 else "#b9c6d2" for q in MS_SWEEP["Quantile"]],
+                               text=[f"{m} modes, {p:.0f}%" for m, p in zip(MS_SWEEP["Modes found"], MS_SWEEP["Largest mode (%)"])],
+                               textposition="outside", cliponaxis=False))
+        style(fig, 320, yaxis=dict(title="% of sellers in largest mode", range=[0, 112]))
+        show(fig)
+    with c2:
+        header("Silhouette by bandwidth", "The best-looking score comes from the most lopsided split.")
+        fig = go.Figure(go.Bar(x=[f"h = {b:.2f}" for b in MS_SWEEP["Bandwidth"]], y=MS_SWEEP["Silhouette"],
+                               marker_color=[RED if q == 0.25 else "#b9c6d2" for q in MS_SWEEP["Quantile"]],
+                               text=[f"{v:.2f}" for v in MS_SWEEP["Silhouette"]], textposition="outside", cliponaxis=False))
+        style(fig, 320, yaxis=dict(title="Silhouette", range=[0, 0.42]))
+        show(fig)
+    table(MS_SWEEP.style.format({"Quantile": "{:.2f}", "Bandwidth": "{:.3f}", "Largest mode (%)": "{:.1f}", "Silhouette": "{:.4f}"}))
+    header("Mode sizes at q = 0.25 (the notebook's choice)", "Log scale: one mode holds almost everyone.")
+    fig = go.Figure(go.Bar(y=[f"Mode {i + 1}" for i in range(len(MS_SIZES))], x=MS_SIZES, orientation="h", marker_color=BLUE,
+                           text=[f"{v:,}" for v in MS_SIZES], textposition="outside", cliponaxis=False))
+    style(fig, 280, xaxis=dict(title="Sellers (log scale)", type="log", range=[-0.1, 3.9]), yaxis=dict(autorange="reversed", showgrid=False))
+    show(fig)
+    st.caption("Saved numbers from Notebook 05 (re-running Mean-Shift for five bandwidths is slow). The notebook lists the six biggest modes; "
+               "the seventh holds the one seller left over from 3,095.")
+    callout(
+        "A high silhouette that means little",
+        "q = 0.25 has the best silhouette (0.33) because 96% of sellers sit in one mode and the other six modes are tiny groups of extreme "
+        "sellers (86, 14, 9, 7, 3 and 1). That finds outliers, not segments, which is why K-Means and business-rule tiers are used instead.",
+    )
+
+    # ------------------------------------------------------------------ OPTICS
+    st.markdown("## OPTICS: reachability plot")
+    st.write(
+        "OPTICS orders the sellers so that neighbours are next to each other and records how far each is from the previous group "
+        "(its reachability distance). A cluster is a valley in this plot; a cluster boundary is a tall wall. "
+        "Settings: minPts 25, xi 0.04, minimum cluster size 1.5%."
+    )
+    reach, core_d, order, lab_op = optics_run(X)
+    r = reach[order]
+    fin = r[np.isfinite(r)]
+    cap = float(np.percentile(fin, 99.5))
+    p90 = float(np.percentile(fin, 90))
+    cut_e = st.slider("Horizontal cut height (eps')", round(float(np.percentile(fin, 50)), 2), round(cap, 2), round(p90, 2), 0.05,
+                      help="Cutting the plot at one height gives the same result as DBSCAN with that eps. Default: the 90th percentile.")
+    fig = go.Figure(go.Bar(x=np.arange(n), y=np.where(np.isfinite(r), np.minimum(r, cap), np.nan), marker_color=BLUE,
+                           marker_line_width=0, hoverinfo="skip"))
+    fig.add_hline(y=cut_e, line_dash="dash", line_color=RED, annotation_text=f"eps' = {cut_e:.2f}", annotation_position="top right")
+    style(fig, 360, bargap=0, xaxis=dict(title="Sellers in OPTICS order", showticklabels=False), yaxis=dict(title="Reachability distance"))
+    show(fig)
+    st.caption(f"The axis is cut at the 99.5th percentile ({cap:.1f}) for readability; the largest reachability distance is {fin.max():.1f}.")
+    from sklearn.cluster import cluster_optics_dbscan
+    cut_lab = cluster_optics_dbscan(reachability=reach, core_distances=core_d, ordering=order, eps=cut_e)
+    n_xi = len(set(lab_op)) - (1 if -1 in lab_op else 0)
+    n_cut = len(set(cut_lab)) - (1 if -1 in cut_lab else 0)
+    m = st.columns(4)
+    m[0].metric("Clusters (xi method)", n_xi)
+    m[1].metric("Noise (xi method)", f"{(lab_op == -1).sum():,}")
+    m[2].metric("Clusters (horizontal cut)", n_cut)
+    m[3].metric("Noise (horizontal cut)", f"{(cut_lab == -1).sum():,}", f"{(cut_lab == -1).mean() * 100:.1f}%", delta_color="off")
+    callout(
+        "One long, shallow valley" if n_xi <= 1 else "Several valleys found",
+        ("The plot is one broad valley with spikes for isolated sellers; there are no deep, separated valleys. "
+         "The notebook also found a single cluster in the 6-D autoencoder space (minPts 20), so the result does not come from "
+         "the curse of dimensionality alone.")
+        if n_xi <= 1 else
+        "The xi method separated more than one valley. Compare with the horizontal cut: valleys that disappear when the cut moves are not robust.",
+    )
+
+    callout(
+        "What the five algorithms add up to",
+        "K-Means and Ward can always cut a continuum into pieces, but their scores stay low and disagree. DBSCAN and OPTICS see one dense "
+        "cloud. Mean-Shift only isolates a handful of extreme sellers. Taken together this supports the choice on page 8: "
+        "interpretable, rule-based seller tiers instead of algorithmic clusters.",
+    )
+
+
+def make_subplots_scores(km, wd):
+    from plotly.subplots import make_subplots
+    fig = make_subplots(rows=1, cols=3, subplot_titles=[f"{n} ({b} is better)" for n, _, b in CLUSTER_METRICS], horizontal_spacing=0.08)
+    for j, (name, col, _) in enumerate(CLUSTER_METRICS, start=1):
+        for algo, df, colr in (("K-Means", km, BLUE), ("Ward", wd, ORANGE)):
+            fig.add_scatter(x=df["k"], y=df[col], mode="lines+markers", name=algo, line=dict(color=colr, width=2.5),
+                            showlegend=(j == 1), row=1, col=j)
+    style(fig, 340, legend=True)
+    fig.update_xaxes(dtick=1, title_text="k")
+    return fig
 
 
 # ===========================================================================
@@ -1550,11 +2114,10 @@ def page_challenges():
 # ---------------------------------------------------------------------------
 # Router
 # ---------------------------------------------------------------------------
-ROUTES = {
-    PAGES[0]: page_overview, PAGES[1]: page_processing, PAGES[2]: page_delivery, PAGES[3]: page_statistics,
-    PAGES[4]: page_outliers, PAGES[5]: page_text, PAGES[6]: page_geo, PAGES[7]: page_rules,
-    PAGES[8]: page_sellers, PAGES[9]: page_challenges,
-}
+ROUTES = dict(zip(PAGES, [
+    page_overview, page_processing, page_delivery, page_statistics, page_outliers, page_text, page_geo,
+    page_rules, page_sellers, page_clustering, page_challenges,
+]))
 ROUTES[page]()
 
 st.markdown("---")
