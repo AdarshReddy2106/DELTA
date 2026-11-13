@@ -201,8 +201,6 @@ routes = load_csv("graph_route_performance.csv")
 state_metrics = load_csv("graph_state_metrics.csv")
 nlp_top = load_csv("nlp_top_terms.csv")
 nlp_dist = load_csv("nlp_distinctive_terms.csv")
-rules_risk = load_csv("rules_bad_review_risk.csv")
-rules_cop = load_csv("rules_category_copurchase.csv")
 if daily is not None:
     daily["purchase_date"] = pd.to_datetime(daily["purchase_date"])
 if sellers is not None:
@@ -219,9 +217,9 @@ PAGES = [
     "4. Outliers & missing values",
     "5. Reviews (text mining)",
     "6. Geography & network",
-    "7. Association rules",
-    "8. Sellers: reduction & clustering",
-    "9. Clustering algorithms",
+    "7. Sellers: reduction & clustering",
+    "8. Clustering algorithms",
+    "Conclusions",
     "Challenges & decisions",
 ]
 with st.sidebar:
@@ -365,9 +363,8 @@ def page_overview():
         ["Outliers and missing values", "IQR vs Z-score, scatter plots, winsorizing, MNAR comments, comment model, imputation experiment", "4"],
         ["Text mining", "Portuguese TF-IDF that keeps negations", "5"],
         ["Graph analysis", "State shipping network, PageRank, betweenness, route risk", "6"],
-        ["Association rules", "FP-Growth / Apriori on order risk profiles and category baskets", "7"],
-        ["Dimensionality reduction", "PCA (and its SVD equivalence), t-SNE at five perplexities, autoencoder", "8"],
-        ["Clustering", "K-Means, Ward, DBSCAN, Mean-Shift, OPTICS, seller tiers", "8, 9"],
+        ["Dimensionality reduction", "PCA (and its SVD equivalence), t-SNE at five perplexities, autoencoder", "7"],
+        ["Clustering", "K-Means, Ward, DBSCAN, Mean-Shift, OPTICS, seller tiers", "7, 8"],
     ], columns=["Topic", "What we did", "Section"]))
 
 
@@ -393,32 +390,19 @@ def page_processing():
     st.caption("Numbers are from the notebook's profiling step (full raw data, not affected by the sidebar filters).")
 
     st.markdown("## From raw tables to the master tables")
-    c1, c2 = st.columns([3, 2])
-    with c1:
-        header("Row counts before and after cleaning", "Aggregating child tables first keeps one row per order.")
-        steps = pd.DataFrame({
-            "Step": ["Order items", "Order reviews", "Geolocation"],
-            "Raw rows": [112650, 99224, 1000163],
-            "After cleaning": [98666, 98673, 19010],
-            "How": ["Aggregated to 1 row per order", "De-duplicated per order", "Median lat/lng per zip prefix"],
-        })
-        fig = go.Figure()
-        fig.add_bar(y=steps["Step"], x=steps["Raw rows"], orientation="h", name="Raw", marker_color="#c9d6e2")
-        fig.add_bar(y=steps["Step"], x=steps["After cleaning"], orientation="h", name="After cleaning", marker_color=BLUE)
-        style(fig, 250, legend=True, barmode="group", xaxis=dict(type="log", title="Rows (log scale)"),
-              yaxis=dict(autorange="reversed"))
-        show(fig)
-    with c2:
-        header("What the master table adds")
-        st.markdown(
-            "- `approval_hours`: purchase to payment approval\n"
-            "- `seller_handling_days`: approval to carrier pickup\n"
-            "- `carrier_transit_days`: pickup to customer\n"
-            "- `total_delivery_days`, `days_late` (actual minus estimate)\n"
-            "- `distance_km`: Haversine distance seller to customer\n"
-            "- `lateness_bucket`, `is_late`, `is_cross_state`"
-        )
-        st.caption("master_orders: 99,441 rows x 59 columns. master_sellers: 3,095 rows x 25 columns.")
+    header("Row counts before and after cleaning", "Aggregating child tables first keeps one row per order.")
+    steps = pd.DataFrame({
+        "Step": ["Order items", "Order reviews", "Geolocation"],
+        "Raw rows": [112650, 99224, 1000163],
+        "After cleaning": [98666, 98673, 19010],
+        "How": ["Aggregated to 1 row per order", "De-duplicated per order", "Median lat/lng per zip prefix"],
+    })
+    fig = go.Figure()
+    fig.add_bar(y=steps["Step"], x=steps["Raw rows"], orientation="h", name="Raw", marker_color="#c9d6e2")
+    fig.add_bar(y=steps["Step"], x=steps["After cleaning"], orientation="h", name="After cleaning", marker_color=BLUE)
+    style(fig, 250, legend=True, barmode="group", xaxis=dict(type="log", title="Rows (log scale)"),
+          yaxis=dict(autorange="reversed"))
+    show(fig)
 
     st.markdown("## Time-series noise removal")
     st.write(
@@ -471,29 +455,6 @@ def page_processing():
                     "window removes the weekday ripple and still shows the peak. We used 7-14 days for trend and "
                     "kept the raw series for event analysis.",
                 )
-
-    st.markdown("## When do customers buy? (why time is encoded as sine/cosine)")
-    st.write(
-        "Hour of day, weekday and month are cyclic: 23:00 is next to 00:00 and December is next to January. "
-        "Plain integers break that, so the notebook encodes them as sin and cos pairs."
-    )
-    c1, c2 = st.columns([3, 2])
-    dow_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-    with c1:
-        header("Orders by weekday and hour")
-        hm = filt.groupby(["purchase_dayofweek", "purchase_hour"]).size().unstack(fill_value=0)
-        hm = hm.reindex(index=range(7), columns=range(24), fill_value=0)
-        fig = go.Figure(go.Heatmap(z=hm.values, x=list(range(24)), y=dow_names, colorscale="Blues",
-                                   colorbar=dict(title="Orders", thickness=12)))
-        style(fig, 320, xaxis=dict(title="Hour of day", dtick=2), yaxis=dict(autorange="reversed", showgrid=False))
-        show(fig)
-    with c2:
-        header("Late rate by purchase weekday")
-        wd = filt.groupby("purchase_dayofweek")["is_late"].mean().reindex(range(7)) * 100
-        fig = go.Figure(go.Bar(x=dow_names, y=wd.values, marker_color=BLUE,
-                               text=[f"{v:.1f}%" for v in wd.values], textposition="outside", cliponaxis=False))
-        style(fig, 320, yaxis=dict(title="Late rate (%)", rangemode="tozero"))
-        show(fig)
 
 
 # ===========================================================================
@@ -623,19 +584,99 @@ NUM_LABELS = {
 }
 
 
+TRANSFORM_METHODS = ["Log (log1p)", "Square root", "Box-Cox", "Yeo-Johnson"]
+SCALING_FEATURES = [
+    "total_orders", "total_revenue", "avg_handling_days", "avg_transit_days",
+    "avg_delivery_days", "late_rate", "avg_review_score", "avg_distance_km",
+]
+CYCLICAL_SPECS = {
+    "Hour of day (0-23)": ("purchase_hour", 24, 0, None),
+    "Day of week (0-6)": ("purchase_dayofweek", 7, 0, ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]),
+    "Month (1-12)": ("purchase_month", 12, 1, ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]),
+}
+
+
+def _apply_transform(vals, method):
+    """Apply a named skewness-reducing transform and return (transformed, fitted_lambda)."""
+    arr = np.asarray(vals, dtype=float)
+    if method == "Square root":
+        return np.sqrt(arr), None
+    if method == "Log (log1p)":
+        return np.log1p(arr), None
+    if method == "Box-Cox":
+        out, lam = stats.boxcox(arr)
+        return out, float(lam)
+    out, lam = stats.yeojohnson(arr)
+    return out, float(lam)
+
+
+def _valid_transforms(arr):
+    mn = float(np.min(arr))
+    methods = []
+    if mn >= 0:
+        methods.extend(["Log (log1p)", "Square root"])
+    if mn > 0:
+        methods.append("Box-Cox")
+    methods.append("Yeo-Johnson")
+    return methods
+
+
 @st.cache_data(show_spinner=False)
 def transform_skews(x_values):
     x = pd.Series(x_values).dropna()
     if len(x) > 40000:
         x = x.sample(40000, random_state=0)
-    out = {"Original": skew(x)}
-    if x.min() >= 0:
-        out["Square root"] = skew(np.sqrt(x))
-        out["Log (log1p)"] = skew(np.log1p(x))
-    if x.min() > 0:
-        out["Box-Cox"] = skew(stats.boxcox(x.values)[0])
-    out["Yeo-Johnson"] = skew(stats.yeojohnson(x.values)[0])
+    vals = x.values.astype(float)
+    out = {"Original": skew(vals)}
+    for method in _valid_transforms(vals):
+        tr, _ = _apply_transform(vals, method)
+        out[method] = skew(tr)
     return out
+
+
+@st.cache_data(show_spinner=False)
+def seller_scaling_bundle(df):
+    """Apply Standard, Robust, and Min-Max scalers on the 8 seller features from NB 02."""
+    from sklearn.preprocessing import MinMaxScaler, RobustScaler, StandardScaler
+    cols = [c for c in SCALING_FEATURES if c in df.columns]
+    raw = df[cols].astype(float).copy()
+    raw = raw.fillna(raw.median())
+    scalers = {
+        "Original": None,
+        "Standard (z-score)": StandardScaler(),
+        "Robust (median / IQR)": RobustScaler(),
+        "Min-Max (0-1)": MinMaxScaler(),
+    }
+    scaled = {}
+    for name, sc in scalers.items():
+        scaled[name] = raw.copy() if sc is None else pd.DataFrame(sc.fit_transform(raw), columns=cols, index=raw.index)
+    return cols, scaled
+
+
+@st.cache_data(show_spinner=False)
+def oof_target_encode(cat_series, target_series, n_splits=5, smooth_m=20):
+    """5-fold stratified out-of-fold smoothed target encoding (NB 02 s2.7)."""
+    from sklearn.model_selection import StratifiedKFold
+    valid = cat_series.notna() & target_series.notna()
+    cats = cat_series[valid].astype(str).reset_index(drop=True)
+    y = target_series[valid].astype(int).reset_index(drop=True)
+    if len(y) < n_splits * 2 or y.value_counts().min() < n_splits:
+        return None
+    oof = np.empty(len(y), dtype=float)
+    skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=42)
+    for tr_idx, va_idx in skf.split(cats, y):
+        tr_df = pd.DataFrame({"cat": cats.iloc[tr_idx], "y": y.iloc[tr_idx]})
+        gmean = float(tr_df["y"].mean())
+        agg = tr_df.groupby("cat")["y"].agg(["count", "mean"])
+        enc_map = (agg["count"] * agg["mean"] + smooth_m * gmean) / (agg["count"] + smooth_m)
+        oof[va_idx] = cats.iloc[va_idx].map(enc_map).fillna(gmean).values
+    summary = (
+        pd.DataFrame({"Category": cats, "y": y, "oof_enc": oof})
+        .groupby("Category")
+        .agg(Orders=("y", "count"), Raw_late_rate=("y", "mean"), OOF_encoded=("oof_enc", "mean"))
+        .reset_index()
+    )
+    return summary
 
 
 def run_tests(df):
@@ -667,43 +708,16 @@ def page_statistics():
     rows = []
     for c in cols:
         x = filt[c].dropna()
-        rows.append([NUM_LABELS[c], len(x), x.mean(), x.median(), x.std(), skew(x), float(stats.kurtosis(x, bias=False))])
-    desc = pd.DataFrame(rows, columns=["Variable", "Count", "Mean", "Median", "Std dev", "Skewness", "Kurtosis"])
+        rows.append([NUM_LABELS[c], len(x), x.mean(), x.median(), x.std(), skew(x)])
+    desc = pd.DataFrame(rows, columns=["Variable", "Count", "Mean", "Median", "Std dev", "Skewness"])
     table(desc.style.format({"Count": "{:,.0f}", "Mean": "{:,.2f}", "Median": "{:,.2f}", "Std dev": "{:,.2f}",
-                              "Skewness": "{:.2f}", "Kurtosis": "{:.1f}"}).background_gradient(subset=["Skewness"], cmap="Oranges"))
+                              "Skewness": "{:.2f}"}).background_gradient(subset=["Skewness"], cmap="Oranges"))
     callout(
         "Mean and median disagree for money and time",
         "Order price has a mean far above its median and a skewness near 10, because a few expensive orders pull the "
         "average up. Approval time is the extreme case: a median of about 20 minutes but a mean of ten hours. For "
         "these variables we report medians and use rank-based tests.",
     )
-
-    st.markdown("## Does lateness change the review? Three tests and two effect sizes")
-    res = run_tests(filt)
-    if res is None:
-        st.info("Not enough late and on-time orders in the current selection to run the tests.")
-    else:
-        t = pd.DataFrame([
-            ["Mann-Whitney U", "Review scores, late vs not late", f"U = {res['u'].statistic:,.0f}", fmt_p(res["u"].pvalue)],
-            ["Kruskal-Wallis", "Review scores across 5 lateness buckets",
-             f"H = {res['kw'].statistic:,.0f}" if res["kw"] else "n/a", fmt_p(res["kw"].pvalue) if res["kw"] else "n/a"],
-            ["Chi-square", "Lateness bucket vs low review (1-2 stars)",
-             f"chi2 = {res['chi'][0]:,.0f}" if res["chi"] else "n/a", fmt_p(res["chi"][1]) if res["chi"] else "n/a"],
-        ], columns=["Test", "Question", "Statistic", "p-value"])
-        c1, c2 = st.columns([3, 2])
-        with c1:
-            table(t)
-        with c2:
-            m1, m2 = st.columns(2)
-            m1.metric("Cliff's delta", f"{res['delta']:.2f}", help="-1 to +1. Negative: late orders get lower scores.")
-            m2.metric("Cramer's V", f"{res['v']:.2f}", help="0 to 1. Strength of the lateness / low-review association.")
-        size = "large" if abs(res["delta"]) >= 0.474 else "medium" if abs(res["delta"]) >= 0.33 else "small"
-        callout(
-            "Significant and large",
-            f"All three tests reject independence. With ~100k orders, p-values are always tiny, so the effect sizes "
-            f"tell the real story: Cliff's delta of {res['delta']:.2f} is a <b>{size}</b> effect. The median review is "
-            f"<b>{res['med_ok']:.0f}</b> star(s) for on-time orders and <b>{res['med_late']:.0f}</b> for late orders.",
-        )
 
     st.markdown("## Relationships between variables")
     c1, c2 = st.columns([3, 2])
@@ -735,7 +749,8 @@ def page_statistics():
         "deliveries) can only use Yeo-Johnson."
     )
     var = st.selectbox("Variable", cols[:-1] if "review_score" in cols else cols, format_func=lambda c: NUM_LABELS[c], index=0)
-    sk = transform_skews(filt[var].dropna().values)
+    raw_vals = filt[var].dropna().values
+    sk = transform_skews(raw_vals)
     sk_df = pd.DataFrame({"Method": list(sk), "Skewness": list(sk.values())})
     c1, c2 = st.columns([2, 3])
     with c1:
@@ -748,12 +763,11 @@ def page_statistics():
             text=[f"{v:.2f}" for v in sk_df["Skewness"]], textposition="outside", cliponaxis=False))
         style(fig, 300, yaxis=dict(title="Skewness"))
         show(fig)
-    x = filt[var].dropna()
-    xs = x.sample(min(len(x), 20000), random_state=0)
-    if xs.min() >= 0:
-        tr, tr_name = np.log1p(xs), "log1p"
-    else:
-        tr, tr_name = pd.Series(stats.yeojohnson(xs.values)[0]), "Yeo-Johnson"
+
+    xs = filt[var].dropna().sample(min(int(filt[var].notna().sum()), 20000), random_state=0).values
+    valid_m = _valid_transforms(xs)
+    tr_choice = st.radio("Transformation to inspect", valid_m, horizontal=True, key="stat_tr_choice")
+    tr_vals, tr_lam = _apply_transform(xs, tr_choice)
     c1, c2 = st.columns(2)
     with c1:
         header(f"{NUM_LABELS[var]} - original")
@@ -761,18 +775,51 @@ def page_statistics():
         style(f, 260, xaxis=dict(title=NUM_LABELS[var]), yaxis=dict(title="Orders"))
         show(f)
     with c2:
-        header(f"After {tr_name}")
-        f = go.Figure(go.Histogram(x=tr, nbinsx=60, marker_color=BLUE))
-        style(f, 260, xaxis=dict(title=f"{tr_name} of {NUM_LABELS[var]}"), yaxis=dict(title="Orders"))
+        lam_note = f" (lambda = {tr_lam:.3f})" if tr_lam is not None else ""
+        header(f"After {tr_choice}{lam_note}")
+        f = go.Figure(go.Histogram(x=tr_vals, nbinsx=60, marker_color=BLUE))
+        style(f, 260, xaxis=dict(title=f"{tr_choice} of {NUM_LABELS[var]}"), yaxis=dict(title="Orders"))
         show(f)
 
-    st.markdown("## Encoding categorical and time variables")
-    table(pd.DataFrame([
-        ["Payment type", "One-hot", "Nominal, no order, only a few levels"],
-        ["State, category", "Frequency + target encoding", "Many levels; target encoding uses 5-fold out-of-fold means so a row never sees its own label"],
-        ["Review score", "Ordinal (kept as 1-5)", "Natural order already present"],
-        ["Hour, weekday, month", "Sine / cosine pairs", "Keeps 23h next to 0h and December next to January"],
-    ], columns=["Variable", "Encoding", "Why"]))
+    st.markdown("## Feature scaling: Standard vs Robust vs Min-Max")
+    st.write(
+        "From Notebook 02 (section 2.6.7), the eight continuous seller metrics span vastly different units (orders in 1-2,000 vs "
+        "revenue in R\\$10-240k). Before clustering or neural models, features must share a common scale without letting outliers "
+        "crush normal sellers into a narrow band."
+    )
+    if sellers is not None:
+        sc_cols, sc_maps = seller_scaling_bundle(sellers)
+        c1, c2 = st.columns([1, 2])
+        sc_feat = c1.selectbox("Seller metric", sc_cols, format_func=lambda c: c.replace("_", " ").replace("avg ", "average ").capitalize())
+        sc_choice = c2.radio("Scaler to summarize", list(sc_maps)[1:], horizontal=True, key="scaler_tbl_choice")
+        s_df = sc_maps[sc_choice]
+        sum_rows = []
+        for col_s in sc_cols:
+            v = s_df[col_s]
+            sum_rows.append([
+                col_s.replace("_", " ").replace("avg ", "average "),
+                float(v.median()), float(v.quantile(0.75) - v.quantile(0.25)),
+                float(v.mean()), float(v.std()), float(v.min()), float(v.max()),
+            ])
+        c1, c2 = st.columns([3, 2])
+        with c1:
+            header(f"Scaled seller distributions ({sc_feat.replace('_', ' ')})")
+            f = go.Figure()
+            for col_name, color in [("Standard (z-score)", BLUE), ("Robust (median / IQR)", GREEN), ("Min-Max (0-1)", ORANGE)]:
+                f.add_box(y=sc_maps[col_name][sc_feat], name=col_name.split(" (")[0], marker_color=color, boxpoints="outliers")
+            style(f, 300, yaxis=dict(title="Scaled value"), xaxis=dict(showgrid=False))
+            show(f)
+        with c2:
+            callout(
+                "Why Robust or Standard beats Min-Max",
+                "Min-Max compresses 95% of sellers near 0 whenever a top seller hits R\\$240k revenue or 2,000 orders. "
+                "RobustScaler centers at 0 with IQR = 1; in Notebook 05 we log-transform skewed counts first and then apply "
+                "StandardScaler.",
+            )
+        with st.expander(f"See all 8 features under {sc_choice}"):
+            table(pd.DataFrame(sum_rows, columns=["Feature", "Median", "IQR", "Mean", "Std dev", "Min", "Max"]).style.format(
+                {"Median": "{:.2f}", "IQR": "{:.2f}", "Mean": "{:.2f}", "Std dev": "{:.2f}", "Min": "{:.2f}", "Max": "{:.2f}"}
+            ))
 
 
 # ===========================================================================
@@ -1127,8 +1174,9 @@ def page_outliers():
         "The best method depends on the error you care about",
         "MICE has the lowest RMSE for all four features because it uses the other dimensions to predict the "
         "missing one and avoids large misses. For the very skewed weight, the median wins on MAE: it is a safe "
-        "typical value but misses badly on heavy products. The categorical column had no real gaps, so mode "
-        "imputation was demonstrated on masked labels only.",
+        "typical value but misses badly on heavy products. For categorical <code>primary_category</code> (no real gaps), "
+        "15% random masking recovered <b>9.45%</b> of 4,942 masked labels using the global mode (<code>bed_bath_table</code>) - "
+        "why predictive or item-level imputation would be needed if categories were missing.",
     )
 
 
@@ -1257,9 +1305,19 @@ def page_geo():
     with c2:
         sm = state_metrics.sort_values("pagerank", ascending=False).head(6)
         header("Most central states (PageRank)")
-        table(sm[["state", "pagerank", "betweenness", "in_strength", "out_strength"]].rename(columns={
-            "state": "State", "pagerank": "PageRank", "betweenness": "Betweenness", "in_strength": "Orders in", "out_strength": "Orders out"}).style.format(
-            {"PageRank": "{:.3f}", "Betweenness": "{:.3f}", "Orders in": "{:,.0f}", "Orders out": "{:,.0f}"}))
+        table(sm[["state", "pagerank", "betweenness", "in_degree", "out_degree", "intra_state_share"]].rename(columns={
+            "state": "State", "pagerank": "PageRank", "betweenness": "Betweenness",
+            "in_degree": "In deg", "out_degree": "Out deg", "intra_state_share": "Intra-state"}).style.format(
+            {"PageRank": "{:.3f}", "Betweenness": "{:.3f}", "In deg": "{:.0f}", "Out deg": "{:.0f}", "Intra-state": "{:.1%}"}))
+        with st.expander("All 27 states (degrees, strength & intra-state share)"):
+            full_sm = state_metrics.sort_values("pagerank", ascending=False).copy()
+            cols_sm = [c for c in ["state", "pagerank", "betweenness", "in_degree", "out_degree",
+                                   "in_strength", "out_strength", "intra_state_share", "dest_late_rate", "dest_avg_review"] if c in full_sm]
+            table(full_sm[cols_sm].style.format({
+                "pagerank": "{:.3f}", "betweenness": "{:.3f}", "in_degree": "{:.0f}", "out_degree": "{:.0f}",
+                "in_strength": "{:,.0f}", "out_strength": "{:,.0f}", "intra_state_share": "{:.1%}",
+                "dest_late_rate": "{:.1%}", "dest_avg_review": "{:.2f}",
+            }))
         callout(
             "One hub, no communities",
             "Sao Paulo ships about 61% of all inter-state orders and holds almost all the betweenness. The 27-state "
@@ -1310,22 +1368,50 @@ def page_geo():
                 "Avg review": [f"{cross.loc[0, 'review']:.2f}", f"{cross.loc[1, 'review']:.2f}"],
             }))
 
+    st.markdown("## Origin-destination late-rate heatmap")
+    hm_min = st.slider("Minimum orders to show route cell", 10, 200, 30, 10, key="hm_min_orders",
+                       help="Matches Notebook 04 (default: 30 orders) so tiny cells do not distort the colour scale.")
+    hm_df = routes[routes["order_count"] >= hm_min].copy()
+    if hm_df.empty:
+        st.info("No routes meet that order threshold.")
+    else:
+        piv_rate = hm_df.pivot(index="seller_state", columns="customer_state", values="late_rate") * 100
+        piv_cnt = hm_df.pivot(index="seller_state", columns="customer_state", values="order_count")
+        piv_rate = piv_rate.dropna(how="all").dropna(axis=1, how="all")
+        piv_cnt = piv_cnt.reindex(index=piv_rate.index, columns=piv_rate.columns)
+        fig = go.Figure(go.Heatmap(
+            z=piv_rate.values, x=piv_rate.columns.tolist(), y=piv_rate.index.tolist(),
+            customdata=piv_cnt.values, colorscale="YlOrRd", zmin=0, zmax=min(40.0, float(np.nanmax(piv_rate.values))),
+            colorbar=dict(title="Late %", thickness=12),
+            hovertemplate="Seller: %{y} -> Customer: %{x}<br>Late rate: %{z:.1f}%<br>Orders: %{customdata:,.0f}<extra></extra>",
+        ))
+        style(fig, max(340, 22 * len(piv_rate)), xaxis=dict(title="Customer state (destination)"),
+              yaxis=dict(title="Seller state (origin)", autorange="reversed", showgrid=False), margin=dict(l=10, r=10, t=10, b=10))
+        show(fig)
+
     st.markdown("## Worst routes (seller state to customer state)")
     c1, c2 = st.columns([1, 2])
     min_o = c1.slider("Minimum orders per route", 20, 500, 100, 20,
                       help="Rare routes with a handful of orders can look extreme by chance.")
-    key = c2.radio("Rank by", ["Late rate", "Lowest review"], horizontal=True)
+    key = c2.radio("Rank by", ["Late rate", "Late order count", "Lowest review"], horizontal=True)
     rf = routes[routes["order_count"] >= min_o].copy()
     rf["route"] = rf["seller_state"] + " to " + rf["customer_state"]
+    rf["late_orders"] = rf["late_rate"] * rf["order_count"]
     if key == "Late rate":
         w = rf.nlargest(12, "late_rate").sort_values("late_rate")
         xv, label = w["late_rate"] * 100, [f"{v * 100:.1f}%" for v in w["late_rate"]]
+        xtitle = "Late rate (%)"
+    elif key == "Late order count":
+        w = rf.nlargest(12, "late_orders").sort_values("late_orders")
+        xv, label = w["late_orders"], [f"{int(round(v)):,} late" for v in w["late_orders"]]
+        xtitle = "Late orders"
     else:
         w = rf.nsmallest(12, "avg_review").sort_values("avg_review", ascending=False)
         xv, label = w["avg_review"], [f"{v:.2f}" for v in w["avg_review"]]
+        xtitle = "Average review"
     fig = go.Figure(go.Bar(x=xv, y=w["route"], orientation="h", marker_color=RED,
                            text=[f"{t}  ({n:,} orders)" for t, n in zip(label, w["order_count"])], textposition="outside", cliponaxis=False))
-    style(fig, 420, xaxis=dict(title="Late rate (%)" if key == "Late rate" else "Average review", range=[0, float(xv.max()) * 1.4]),
+    style(fig, 420, xaxis=dict(title=xtitle, range=[0, float(xv.max()) * 1.4]),
           yaxis=dict(showgrid=False), margin=dict(l=10, r=40, t=10, b=10))
     show(fig)
     st.caption(f"{len(rf)} of {len(routes)} routes have at least {min_o} orders.")
@@ -1338,108 +1424,7 @@ def page_geo():
 
 
 # ===========================================================================
-# 7. ASSOCIATION RULES
-# ===========================================================================
-def clean_rule(s, width=34):
-    def one(p):
-        k, _, v = p.partition("=")
-        return f"{k.replace('_', ' ').title()}: {v.replace('_', ' ')}" if v else p.replace("_", " ")
-    parts = [one(p) for p in s.split(" + ")]
-    out, line = [], ""
-    for p in parts:
-        if line and len(line) + len(p) > width:
-            out.append(line)
-            line = p
-        else:
-            line = f"{line} + {p}" if line else p
-    out.append(line)
-    return "<br>".join(out)
-
-
-def page_rules():
-    page_intro(
-        "7. Association rules",
-        "Notebook 04, section C - FP-Growth and Apriori",
-        "We looked for combinations of order characteristics that go together with a 1-2 star review.",
-    )
-    st.markdown("## First attempt: which categories are bought together?")
-    c1, c2 = st.columns([2, 3])
-    with c1:
-        st.metric("Orders with 2+ categories", "786", "0.8% of orders", delta_color="off")
-        callout(
-            "Too few baskets",
-            "97.9% of orders contain a single category, so only 786 baskets can form category rules. The few rules found "
-            "are real but cover a tiny share of sales, so we did not stop there.",
-        )
-    with c2:
-        if rules_cop is not None and len(rules_cop):
-            cop = rules_cop.sort_values("lift").copy()
-            cop["rule"] = (cop["antecedent"] + " -> " + cop["consequent"]).str.replace("_", " ")
-            fig = go.Figure(go.Bar(x=cop["lift"], y=cop["rule"], orientation="h", marker_color=BLUE,
-                                   text=[f"lift {l:.1f}  (n={n})" for l, n in zip(cop["lift"], cop["n_baskets"])],
-                                   textposition="outside", cliponaxis=False))
-            style(fig, 330, xaxis=dict(title="Lift", range=[0, cop["lift"].max() * 1.45]), yaxis=dict(showgrid=False),
-                  margin=dict(l=10, r=40, t=10, b=10))
-            show(fig)
-
-    st.markdown("## Second attempt: risk profiles that lead to a bad review")
-    st.write(
-        "Each order became a basket of tags: seller state, customer region, same/cross-state route, lateness status, "
-        "freight level, distance band, handling speed and category. The target was a 1-2 star review (12.8% of orders). "
-        "FP-Growth and Apriori found the same 4,272 itemsets (1.5 s vs 3.1 s), so we kept FP-Growth."
-    )
-    if rules_risk is None:
-        st.info("rules_bad_review_risk.csv was not found.")
-        return
-    c1, c2 = st.columns([1, 1])
-    conf = c1.slider("Minimum confidence", 0.50, 0.90, 0.70, 0.05)
-    nshow = c2.slider("Rules to show", 5, 15, 10)
-    rk = rules_risk[rules_risk["confidence"] >= conf].sort_values("lift", ascending=False).head(nshow).sort_values("lift")
-    if rk.empty:
-        st.info("No rules meet this confidence threshold.")
-    else:
-        header("Top rules by lift", "Lift 6 means a 1-2 star review is six times more likely than average.")
-        fig = go.Figure(go.Bar(
-            x=rk["lift"], y=[clean_rule(a) for a in rk["antecedent"]], orientation="h", marker_color=RED,
-            text=[f"lift {l:.2f}  |  {c * 100:.0f}% conf  |  {n:,} orders" for l, c, n in zip(rk["lift"], rk["confidence"], rk["n_orders"])],
-            textposition="outside", cliponaxis=False))
-        style(fig, max(380, 58 * len(rk)), xaxis=dict(title="Lift vs 12.8% baseline", range=[0, rk["lift"].max() * 1.7]),
-              yaxis=dict(showgrid=False, tickfont=dict(size=11)), margin=dict(l=10, r=40, t=10, b=10))
-        show(fig)
-
-    c1, c2 = st.columns(2)
-    with c1:
-        header("Low-review rate by lateness status", "Computed from the current selection.")
-        g = filt.dropna(subset=["lateness_bucket", "review_score"]).groupby("lateness_bucket")["review_score"].apply(lambda s: (s <= 2).mean())
-        g = g.reindex(present_buckets)
-        base = low_review_rate(filt)
-        fig = go.Figure(go.Bar(x=[BUCKET_SHORT[b] for b in g.index], y=g.values * 100, marker_color=[BUCKET_COLORS[b] for b in g.index],
-                               text=[f"{v * 100:.0f}%  ({v / base:.1f}x)" for v in g.values], textposition="outside", cliponaxis=False))
-        style(fig, 330, yaxis=dict(title="% 1-2 star reviews", range=[0, 100]))
-        show(fig)
-    with c2:
-        header("Rule quality: confidence vs lift", "Bubble size: number of orders.")
-        fig = px.scatter(rules_risk, x=rules_risk["confidence"] * 100, y="lift", size="n_orders", size_max=22,
-                         color_discrete_sequence=[BLUE], opacity=0.55)
-        style(fig, 330, xaxis=dict(title="Confidence (%)"), yaxis=dict(title="Lift"))
-        show(fig)
-
-    callout(
-        "Delay explains the risk; what is left is handling speed and region",
-        "The strongest rule, a cross-state order to the Southeast delayed more than 7 days, gives a bad review 80.6% of "
-        "the time (lift 6.3). When we removed every rule containing a delay tag, the best remaining profiles (slow seller "
-        "handling combined with Northeast customers or long distance) only reach lift of about 1.6. So fixing delays "
-        "removes most of the risk; slow handling and the far Northeast are the next place to look.",
-    )
-    with st.expander("See all mined risk rules"):
-        t = rules_risk.sort_values("lift", ascending=False).head(100).copy()
-        t["confidence"] = t["confidence"] * 100
-        cols = [c for c in ["antecedent", "n_orders", "support", "confidence", "lift", "conviction"] if c in t]
-        table(t[cols].rename(columns={"confidence": "confidence %"}))
-
-
-# ===========================================================================
-# 8. SELLERS: REDUCTION & CLUSTERING
+# 7. SELLERS: REDUCTION & CLUSTERING
 # ===========================================================================
 FEATURES = [
     "total_orders", "total_items", "total_revenue", "total_freight", "avg_price", "avg_freight", "avg_weight_g",
@@ -1493,7 +1478,59 @@ def svd_check(X):
     return vals, S ** 2 / (n - 1), cos
 
 
-TSNE_SCORES = {5: (0.9708, 0.9295), 15: (0.9798, 0.9476), 30: (0.9794, 0.9524), 50: (0.9772, 0.9530), 100: (0.9754, 0.9553)}
+TSNE_SCORES = {
+    5: (0.9708, 0.9295, 1.5840),
+    15: (0.9798, 0.9476, 1.6970),
+    30: (0.9794, 0.9524, 1.6369),
+    50: (0.9772, 0.9530, 1.5485),
+    100: (0.9754, 0.9553, 1.3633),
+}
+
+
+def _fit_single_ae(X_tr, X_te, X_all, k):
+    """Train symmetric 21->16->k->16->21 MLP autoencoder (NB 05 Cell 5)."""
+    from sklearn.decomposition import PCA
+    from sklearn.metrics import mean_squared_error
+    from sklearn.neural_network import MLPRegressor
+    pca_k = PCA(n_components=k, random_state=42).fit(X_tr)
+    pca_tr = mean_squared_error(X_tr, pca_k.inverse_transform(pca_k.transform(X_tr)))
+    pca_te = mean_squared_error(X_te, pca_k.inverse_transform(pca_k.transform(X_te)))
+    ae = MLPRegressor(
+        hidden_layer_sizes=(16, k, 16), activation="relu", solver="adam", alpha=1e-4,
+        batch_size=64, learning_rate_init=0.003, max_iter=400, early_stopping=True,
+        validation_fraction=0.15, n_iter_no_change=25, random_state=42,
+    ).fit(X_tr, X_tr)
+    ae_tr = mean_squared_error(X_tr, ae.predict(X_tr))
+    ae_te = mean_squared_error(X_te, ae.predict(X_te))
+    a = X_all
+    for idx in range(2):
+        a = np.maximum(0, a @ ae.coefs_[idx] + ae.intercepts_[idx])
+    metrics = {
+        "k": str(k), "PCA Train MSE": pca_tr, "AE Train MSE": ae_tr,
+        "PCA Test MSE": pca_te, "AE Test MSE": ae_te,
+        "Gain %": (pca_te - ae_te) / pca_te * 100,
+    }
+    return metrics, ae.loss_curve_, a
+
+
+@st.cache_data(show_spinner="Training Autoencoder latent space (cached afterwards) ...")
+def autoencoder_latent(X, k=6):
+    from sklearn.model_selection import train_test_split
+    X_tr, X_te = train_test_split(X, test_size=0.20, random_state=42)
+    _, _, Z = _fit_single_ae(X_tr, X_te, X, k)
+    return Z
+
+
+@st.cache_data(show_spinner="Training Autoencoder suite for k = 2, 3, 6, 9 (cached afterwards) ...")
+def autoencoder_suite(X):
+    from sklearn.model_selection import train_test_split
+    X_tr, X_te = train_test_split(X, test_size=0.20, random_state=42)
+    rows, losses = [], {}
+    for k in (2, 3, 6, 9):
+        m, lc, _ = _fit_single_ae(X_tr, X_te, X, k)
+        rows.append(m)
+        losses[k] = lc
+    return pd.DataFrame(rows), losses
 
 
 @st.cache_data(show_spinner="Running t-SNE for this perplexity (several seconds, cached afterwards) ...")
@@ -1504,16 +1541,22 @@ def tsne_embed(X, perp):
 
 
 def get_tsne(X, perp):
-    # Perplexity 15 was the notebook's chosen map and is saved in the scorecard, so it needs no recomputation.
+    # Perplexity 15 is saved in the scorecard; otherwise fall back to cached t-SNE computation.
     if perp == 15 and {"tsne_dim1", "tsne_dim2"} <= set(sellers.columns):
         return sellers[["tsne_dim1", "tsne_dim2"]].values
     return tsne_embed(X, perp)
 
 
+def get_ae_2d(X):
+    if {"ae_dim1", "ae_dim2"} <= set(sellers.columns):
+        return sellers[["ae_dim1", "ae_dim2"]].values
+    return autoencoder_latent(X, k=2)
+
+
 
 def page_sellers():
     page_intro(
-        "8. Sellers: dimensionality reduction & clustering",
+        "7. Sellers: dimensionality reduction & clustering",
         "Notebook 05 - PCA, t-SNE, autoencoder, K-Means, Ward, DBSCAN, Mean-Shift, OPTICS",
         "3,095 sellers described by 21 behaviour features: volume, price, handling and transit time, lateness, "
         "reviews and reach. Features were median-imputed, the 10 skewed ones were log-transformed, then all were standardized.",
@@ -1571,13 +1614,16 @@ def page_sellers():
     st.markdown("## Linear vs non-linear reduction")
     c1, c2 = st.columns(2)
     with c1:
-        header("t-SNE: neighbourhood preservation", "Trustworthiness of the 2-D map (1 = perfect), by perplexity.")
-        perp = [5, 15, 30, 50, 100]
+        header("t-SNE: neighbourhood preservation & KL divergence", "Trustworthiness (1 = perfect) and KL divergence by perplexity.")
+        perp_vals = list(TSNE_SCORES)
         fig = go.Figure()
-        fig.add_scatter(x=perp, y=[0.9708, 0.9798, 0.9794, 0.9772, 0.9754], mode="lines+markers", name="k = 10 neighbours", line=dict(color=BLUE, width=2.5))
-        fig.add_scatter(x=perp, y=[0.9295, 0.9476, 0.9524, 0.9530, 0.9553], mode="lines+markers", name="k = 30 neighbours", line=dict(color=GREEN, width=2.5))
+        fig.add_scatter(x=perp_vals, y=[TSNE_SCORES[p][0] for p in perp_vals], mode="lines+markers", name="Trustworthiness (k=10)", line=dict(color=BLUE, width=2.5))
+        fig.add_scatter(x=perp_vals, y=[TSNE_SCORES[p][1] for p in perp_vals], mode="lines+markers", name="Trustworthiness (k=30)", line=dict(color=GREEN, width=2.5))
+        fig.add_scatter(x=perp_vals, y=[TSNE_SCORES[p][2] for p in perp_vals], mode="lines+markers", name="KL divergence", yaxis="y2", line=dict(color=ORANGE, width=2, dash="dash"))
         fig.add_hline(y=0.8058, line_dash="dot", line_color=RED, annotation_text="2-D PCA baseline (0.81)", annotation_position="bottom right")
-        style(fig, 330, legend=True, xaxis=dict(title="Perplexity", type="category"), yaxis=dict(title="Trustworthiness", range=[0.78, 1.0]))
+        style(fig, 340, legend=True, xaxis=dict(title="Perplexity", type="category"),
+              yaxis=dict(title="Trustworthiness", range=[0.78, 1.0]),
+              yaxis2=dict(title="KL divergence", overlaying="y", side="right", range=[1.2, 1.9], showgrid=False))
         show(fig)
     with c2:
         header("Autoencoder vs PCA: reconstruction error", "Test-set MSE by bottleneck size (lower is better).")
@@ -1586,9 +1632,25 @@ def page_sellers():
         fig.add_bar(x=ks, y=[0.5255, 0.4052, 0.1808, 0.0816], name="PCA", marker_color="#b9c6d2")
         fig.add_bar(x=ks, y=[0.4044, 0.3001, 0.1116, 0.0684], name="Autoencoder", marker_color=BLUE,
                     text=["-23%", "-26%", "-38%", "-16%"], textposition="outside")
-        style(fig, 330, legend=True, barmode="group", xaxis=dict(title="Latent dimensions"), yaxis=dict(title="Test MSE"))
+        style(fig, 340, legend=True, barmode="group", xaxis=dict(title="Latent dimensions"), yaxis=dict(title="Test MSE"))
         show(fig)
-    st.caption("t-SNE and autoencoder results are from Notebook 05 (these are slow to retrain, so the dashboard reads the saved numbers).")
+    if st.checkbox("Inspect live Autoencoder training curves & Train vs Test MSE (~7s first run)", value=False, key="ae_live_check"):
+        ae_df, ae_losses = autoencoder_suite(X)
+        c1, c2 = st.columns([3, 2])
+        with c1:
+            header("Autoencoder training convergence (loss curve)", "Adam with early stopping on a 15% validation split.")
+            fig = go.Figure()
+            for (k_ae, curve), col_ae in zip(ae_losses.items(), [GREY, ORANGE, BLUE, GREEN]):
+                fig.add_scatter(x=list(range(1, len(curve) + 1)), y=curve, mode="lines",
+                                name=f"k = {k_ae} ({len(curve)} epochs)", line=dict(color=col_ae, width=2))
+            style(fig, 300, legend=True, xaxis=dict(title="Epoch"), yaxis=dict(title="Training MSE loss"))
+            show(fig)
+        with c2:
+            header("Train vs unseen test MSE")
+            table(ae_df.style.format({"PCA Train MSE": "{:.4f}", "AE Train MSE": "{:.4f}",
+                                      "PCA Test MSE": "{:.4f}", "AE Test MSE": "{:.4f}", "Gain %": "{:+.1f}%"}))
+    else:
+        st.caption("Summary scores are from Notebook 05; toggle above to run the live 4-bottleneck MLP autoencoder comparison and view convergence curves.")
     callout(
         "Non-linear methods keep more structure",
         "A 2-D PCA preserves 81% of local neighbourhoods; t-SNE preserves about 98%. The autoencoder reconstructs the "
@@ -1621,28 +1683,60 @@ def page_sellers():
         fig.update_traces(marker=dict(size=4), hoverinfo="skip")
         style(fig, 420, legend=True, xaxis=dict(title="t-SNE 1", showticklabels=False, showgrid=False), yaxis=dict(title="t-SNE 2", showticklabels=False))
         show(fig)
-    t10, t30 = TSNE_SCORES[perp]
-    m = st.columns(3)
-    m[0].metric("Trustworthiness (10 neighbours)", f"{t10:.3f}", "best of the five" if perp == 15 else None, delta_color="off")
-    m[1].metric("Trustworthiness (30 neighbours)", f"{t30:.3f}")
-    m[2].metric("2-D PCA baseline (10 / 30)", "0.806 / 0.806")
+    t10, t30, kl = TSNE_SCORES[perp]
+    m = st.columns(4)
+    m[0].metric("Trustworthiness (k=10)", f"{t10:.3f}", "best of the five" if perp == 15 else None, delta_color="off")
+    m[1].metric("Trustworthiness (k=30)", f"{t30:.3f}")
+    m[2].metric("Final KL divergence", f"{kl:.3f}")
+    m[3].metric("2-D PCA baseline (k=10 / 30)", "0.806 / 0.806")
     st.caption("Scores are from Notebook 05. Only perplexity 15 is saved in the scorecard; the other maps are re-run here with the notebook's settings "
                "(PCA initialisation, 1,000 iterations, seed 42). Axes of a t-SNE map have no meaning; only which sellers sit close together does.")
 
     header("Seller map", "Each dot is a seller.")
-    c1, c2 = st.columns([1, 1])
-    methods = {"PCA": ("pca_dim1", "pca_dim2"), "t-SNE": ("tsne_dim1", "tsne_dim2"), "Autoencoder": ("ae_dim1", "ae_dim2")}
-    methods = {k: v for k, v in methods.items() if all(c in sellers.columns for c in v)}
-    emb = c1.radio("Embedding", list(methods), horizontal=True)
-    by = c2.radio("Colour by", ["Seller tier", "K-Means cluster"], horizontal=True)
+    c1, c2 = st.columns([2, 3])
+    emb = c1.radio("Embedding", ["PCA", "t-SNE", "Autoencoder"], horizontal=True)
+    color_opts = ["Seller tier", "K-Means cluster", "Ward cluster", "DBSCAN", "Mean-Shift", "OPTICS"]
+    by = c2.selectbox("Colour by", color_opts, key="seller_map_color")
     sc = sellers.copy()
-    sc["K-Means cluster"] = "Cluster " + sc["cluster_kmeans"].astype(str) if "cluster_kmeans" in sc else "n/a"
-    xcol, ycol = methods[emb]
-    col = "tier" if by == "Seller tier" else "K-Means cluster"
+    if emb == "PCA" and {"pca_dim1", "pca_dim2"} <= set(sc.columns):
+        xcol, ycol = "pca_dim1", "pca_dim2"
+    elif emb == "t-SNE":
+        coords = get_tsne(X, 15)
+        sc["_map_x"], sc["_map_y"] = coords[:, 0], coords[:, 1]
+        xcol, ycol = "_map_x", "_map_y"
+    elif emb == "Autoencoder":
+        coords = get_ae_2d(X)
+        sc["_map_x"], sc["_map_y"] = coords[:, 0], coords[:, 1]
+        xcol, ycol = "_map_x", "_map_y"
+    else:
+        sc["_map_x"], sc["_map_y"] = (X @ vecs[:, 0]), (X @ vecs[:, 1])
+        xcol, ycol = "_map_x", "_map_y"
+
+    if by == "Seller tier":
+        col = "tier"
+    elif by == "K-Means cluster" and "cluster_kmeans" in sc:
+        sc["_grp"] = "Cluster " + sc["cluster_kmeans"].astype(str)
+        col = "_grp"
+    elif by == "Ward cluster" and "cluster_ward" in sc:
+        sc["_grp"] = "Ward " + sc["cluster_ward"].astype(str)
+        col = "_grp"
+    elif by == "DBSCAN" and "cluster_dbscan" in sc:
+        sc["_grp"] = np.where(sc["cluster_dbscan"] == -1, "Noise (-1)", "Cluster " + sc["cluster_dbscan"].astype(str))
+        col = "_grp"
+    elif by == "Mean-Shift" and "cluster_meanshift" in sc:
+        top_modes = set(sc["cluster_meanshift"].value_counts().head(4).index)
+        sc["_grp"] = sc["cluster_meanshift"].apply(lambda v: f"Mode {v}" if v in top_modes else "Minor mode")
+        col = "_grp"
+    elif by == "OPTICS" and "cluster_optics" in sc:
+        sc["_grp"] = np.where(sc["cluster_optics"] == -1, "Noise (-1)", "Cluster " + sc["cluster_optics"].astype(str))
+        col = "_grp"
+    else:
+        col = "tier"
+
     fig = px.scatter(sc, x=xcol, y=ycol, color=col, opacity=0.6, color_discrete_map=TIER_COLORS if col == "tier" else None,
                      color_discrete_sequence=[BLUE, ORANGE, GREEN, RED, GREY, "#7a5fa0"],
                      hover_data={"total_orders": True, "late_rate": ":.2f", "avg_review_score": ":.2f", xcol: False, ycol: False},
-                     category_orders={"tier": list(TIER_COLORS)})
+                     category_orders={"tier": list(TIER_COLORS)} if col == "tier" else None)
     fig.update_traces(marker=dict(size=5))
     style(fig, 460, legend=True, xaxis=dict(title=f"{emb} 1", showgrid=True, gridcolor=GRID), yaxis=dict(title=f"{emb} 2"))
     show(fig)
@@ -1663,15 +1757,14 @@ def page_sellers():
         style(fig, 300, xaxis=dict(title="Number of clusters k", dtick=1), yaxis=dict(title="Silhouette", range=[0, max(sw["silhouette"]) * 1.3]))
         show(fig)
 
-    header("Five algorithms compared", "Results from Notebook 05 on the same standardized 21-feature matrix.")
+    header("Four algorithms compared", "Results from Notebook 05 on the same standardized 21-feature matrix.")
     table(pd.DataFrame([
         ["K-Means (k=3)", 3, "0.190", "5% / 40% / 55% of sellers", "Best silhouette among k-means runs"],
-        ["Ward hierarchical (k=3)", 3, "0.157", "51% / 40% / 9%", "Similar split, lower silhouette"],
         ["DBSCAN (eps 4.37, minPts 42)", 1, "n/a", "1 cluster, 3.2% noise", "Same single cluster for every eps tried"],
         ["Mean-Shift (q = 0.25)", 7, "0.333", "96% in one mode", "High silhouette is misleading: 6 tiny outlier groups"],
         ["OPTICS (xi 0.04)", 1, "n/a", "1 cluster, 0% noise", "No density valleys, also in the 6-D latent space"],
     ], columns=["Algorithm", "Clusters", "Silhouette", "Sizes", "Reading"]))
-    st.caption("Each algorithm is examined in detail (validity scores, dendrogram, k-distance plot, bandwidth sweep, reachability plot) on page 9.")
+    st.caption("Each algorithm is examined in detail (validity scores, dendrogram, k-distance plot, bandwidth sweep, reachability plot) on page 8.")
     callout(
         "Sellers form a continuum, so we segment by business rules",
         "Silhouettes never exceed 0.19 for balanced clusterings, and the density methods (DBSCAN, OPTICS) find a single "
@@ -1723,7 +1816,7 @@ def page_sellers():
 
 
 # ===========================================================================
-# 9. CLUSTERING ALGORITHMS
+# 8. CLUSTERING ALGORITHMS
 # ===========================================================================
 MS_SWEEP = pd.DataFrame(
     [[0.10, 3.931, 7, 90.8, 0.2408], [0.15, 4.231, 9, 93.6, 0.2571], [0.20, 4.479, 9, 93.5, 0.2546],
@@ -1779,21 +1872,29 @@ def dbscan_run(X, eps, m):
     return db.labels_, core
 
 
-@st.cache_data(show_spinner="Fitting OPTICS on all 3,095 sellers (the slowest step on this page, cached afterwards) ...")
-def optics_run(X):
+@st.cache_data(show_spinner=False)
+def kmeans_sample_silhouette(X, k=3):
+    from sklearn.cluster import KMeans
+    from sklearn.metrics import silhouette_samples, silhouette_score
+    km = KMeans(n_clusters=k, init="k-means++", n_init=20, max_iter=500, random_state=42).fit(X)
+    return km.labels_, silhouette_samples(X, km.labels_), float(silhouette_score(X, km.labels_))
+
+
+@st.cache_data(show_spinner="Fitting OPTICS on all 3,095 sellers (cached afterwards) ...")
+def optics_run(X, min_samples=25):
     from sklearn.cluster import OPTICS
-    op = OPTICS(min_samples=25, max_eps=np.inf, metric="euclidean", cluster_method="xi", xi=0.04,
-                min_cluster_size=0.015, n_jobs=-1).fit(X)
+    op = OPTICS(min_samples=min_samples, max_eps=np.inf, metric="euclidean", cluster_method="xi", xi=0.04,
+                min_cluster_size=0.015, n_jobs=1).fit(X)
     return op.reachability_, op.core_distances_, op.ordering_, op.labels_
 
 
 def page_clustering():
     page_intro(
-        "9. Clustering algorithms",
+        "8. Clustering algorithms",
         "Notebook 05 - K-Means, Ward, DBSCAN, Mean-Shift, OPTICS under the microscope",
         "Page 8 gives the verdict (sellers form a continuum). This page shows the evidence for each algorithm on the same "
-        "standardized 21-feature seller matrix: validity scores, the dendrogram, the DBSCAN k-distance curve, the Mean-Shift "
-        "bandwidth sweep and the OPTICS reachability plot.",
+        "standardized 21-feature seller matrix (and the 6-D autoencoder latent space): validity scores, per-sample silhouettes, "
+        "the dendrogram & merge jumps, DBSCAN k-distance curves, Mean-Shift sweep and OPTICS reachability plots.",
     )
     if sellers is None or not all(c in sellers.columns for c in FEATURES):
         st.info("seller_scorecard.csv was not found or is missing seller feature columns.")
@@ -1837,6 +1938,36 @@ def page_clustering():
             wd.rename(columns={"silhouette": "Ward silhouette", "ch": "Ward CH", "db": "Ward DB"}), on="k")
         table(t.style.format({c: "{:.3f}" for c in t.columns if c != "k"} | {"K-Means inertia": "{:,.0f}", "K-Means CH": "{:.1f}", "Ward CH": "{:.1f}"}))
 
+    st.markdown("## K-Means per-sample silhouette profile")
+    k_sil = st.slider("Inspect K-Means clusters k", 2, 8, 3, key="km_sil_k")
+    km_lab_s, sample_sils, mean_sil = kmeans_sample_silhouette(X, k_sil)
+    c1, c2 = st.columns([3, 2])
+    with c1:
+        header(f"Silhouette coefficient per seller (k = {k_sil})", "Sorted within each cluster; values below 0 sit closer to a neighbouring cluster.")
+        fig = go.Figure()
+        y_low = 0
+        pal = [BLUE, ORANGE, GREEN, RED, GREY, "#7a5fa0", "#2b8cbe", "#a63603"]
+        for cid in range(k_sil):
+            s_vals = np.sort(sample_sils[km_lab_s == cid])
+            yc = np.arange(y_low, y_low + len(s_vals))
+            fig.add_scatter(x=s_vals, y=yc, mode="lines", line=dict(width=0.6, color=pal[cid % len(pal)]),
+                            fill="tozerox", name=f"C{cid} (n={len(s_vals):,}, mean={s_vals.mean():.2f})")
+            y_low += len(s_vals) + 45
+        fig.add_vline(x=mean_sil, line_dash="dash", line_color=RED, annotation_text=f"Mean = {mean_sil:.3f}", annotation_position="top right")
+        fig.add_vline(x=0, line_color=GREY, line_width=1)
+        style(fig, 360, legend=True, xaxis=dict(title="Silhouette coefficient s_i", range=[min(-0.2, float(sample_sils.min()) - 0.05), 0.7]),
+              yaxis=dict(title="Sellers grouped by cluster", showticklabels=False, showgrid=False))
+        show(fig)
+    with c2:
+        neg_share = float((sample_sils < 0).mean())
+        st.metric("Mean silhouette score", f"{mean_sil:.3f}")
+        st.metric("Sellers with negative silhouette", f"{int((sample_sils < 0).sum()):,}", f"{neg_share * 100:.1f}%", delta_color="off")
+        callout(
+            "Overlapping cluster borders",
+            f"At k = {k_sil}, <b>{neg_share * 100:.1f}%</b> of sellers have a negative silhouette coefficient, confirming that the clusters "
+            "touch and overlap along a continuous cloud rather than forming separated islands.",
+        )
+
     # ------------------------------------------------------------------ Ward
     st.markdown("## Ward hierarchical clustering")
     st.write(
@@ -1863,10 +1994,17 @@ def page_clustering():
     sizes = pd.Series(lab).value_counts().sort_values(ascending=False)
     c1, c2 = st.columns([3, 2])
     with c1:
+        header("Merge-height jump plot (last 15 splits)", "A sharp elbow in merge distance indicates natural clusters.")
+        last_merges = Z[-15:, 2][::-1]
+        merge_k = list(range(2, 17))
+        fig = go.Figure(go.Scatter(x=merge_k, y=last_merges, mode="lines+markers", line=dict(color="#7a5fa0", width=2.5), marker=dict(size=7)))
+        fig.add_vline(x=k_w, line_dash="dash", line_color=RED, annotation_text=f"k = {k_w}", annotation_position="top right")
+        style(fig, 300, xaxis=dict(title="Number of clusters k", dtick=1), yaxis=dict(title="Merge distance"))
+        show(fig)
         header(f"Cluster sizes at k = {k_w}")
         fig = go.Figure(go.Bar(x=[f"Cluster {i + 1}" for i in range(len(sizes))], y=sizes.values / n * 100, marker_color=BLUE,
                                text=[f"{v:,}  ({v / n * 100:.0f}%)" for v in sizes.values], textposition="outside", cliponaxis=False))
-        style(fig, 300, yaxis=dict(title="% of sellers", range=[0, sizes.max() / n * 100 * 1.25]))
+        style(fig, 280, yaxis=dict(title="% of sellers", range=[0, sizes.max() / n * 100 * 1.25]))
         show(fig)
     with c2:
         row = wd[wd["k"] == k_w].iloc[0]
@@ -1883,24 +2021,35 @@ def page_clustering():
     # ------------------------------------------------------------------ DBSCAN
     st.markdown("## DBSCAN: density-based clusters")
     st.write(
-        "DBSCAN needs a radius (eps) and a minimum neighbour count (minPts). The rule of thumb minPts = 2 x dimensions gives 42. "
-        "Sorting every seller's distance to its 42nd neighbour gives the k-distance curve; the knee suggests eps."
+        "DBSCAN needs a radius (eps) and a minimum neighbour count (minPts = 2 x dimensions). We check both the full "
+        "21-D standardized matrix (minPts = 42) and the 6-D autoencoder latent space (minPts = 12) to verify whether "
+        "density valleys appear once distance concentration is reduced."
     )
+    db_space = st.radio("Feature space", ["21D Standardized (minPts = 42)", "6D Autoencoder latent (minPts = 12)"],
+                        horizontal=True, key="db_space")
+    is_db_6d = db_space.startswith("6D")
+    X_db = autoencoder_latent(X, k=6) if is_db_6d else X
     c1, c2 = st.columns([1, 1])
-    minpts = int(c1.number_input("minPts", 5, 100, 42, 1))
-    kd = kdistance(X, minpts)
+    minpts = int(c1.number_input("minPts", 5, 100, 12 if is_db_6d else 42, 1, key=f"db_minpts_{is_db_6d}"))
+    kd = kdistance(X_db, minpts)
     knee_i, knee_eps = find_knee(kd)
-    eps = float(c2.slider("eps", 2.0, 8.0, 4.37, 0.01, help="4.37 is the value used in the notebook (80% of the knee value)."))
+    default_eps = round(float(np.percentile(kd, 92)), 2) if is_db_6d else 4.37
+    max_eps = max(5.0, round(float(kd.max()) * 1.05, 1)) if is_db_6d else 8.0
+    min_eps = 0.2 if is_db_6d else 2.0
+    eps = float(c2.slider(
+        "eps", min_eps, max_eps, min(max(default_eps, min_eps), max_eps), 0.01, key=f"db_eps_{is_db_6d}",
+        help="Notebook 05 used eps = 4.37 in 21D (80% of knee) and the 92nd percentile (~2.20) in the 6D autoencoder space.",
+    ))
     c1, c2 = st.columns([3, 2])
     with c1:
-        header("k-distance curve", "Sellers sorted by distance to their neighbour number minPts.")
+        header("k-distance curve", f"{'6D Autoencoder' if is_db_6d else '21D Standardized'} space: sellers sorted by distance to neighbour {minpts}.")
         fig = go.Figure(go.Scatter(x=np.arange(n), y=kd, mode="lines", line=dict(color=BLUE, width=2.5), hoverinfo="skip"))
         fig.add_scatter(x=[knee_i], y=[knee_eps], mode="markers", marker=dict(size=10, color=ORANGE), name="Knee")
         fig.add_hline(y=eps, line_dash="dash", line_color=RED, annotation_text=f"eps = {eps:.2f}", annotation_position="top left")
         style(fig, 340, xaxis=dict(title="Sellers (sorted)"), yaxis=dict(title=f"Distance to neighbour {minpts}"))
         show(fig)
         st.caption(f"Detected knee: eps = {knee_eps:.2f} (orange dot).")
-    lab_db, core = dbscan_run(X, eps, minpts)
+    lab_db, core = dbscan_run(X_db, eps, minpts)
     noise = lab_db == -1
     border = ~core & ~noise
     n_clu = len(set(lab_db)) - (1 if -1 in lab_db else 0)
@@ -1913,7 +2062,7 @@ def page_clustering():
         m4.metric("Border points", f"{border.sum():,}", f"{border.mean() * 100:.1f}%", delta_color="off")
         st.caption("Core: at least minPts neighbours within eps. Border: within eps of a core point but not core itself. Noise: neither.")
 
-    header("Where the core, border and noise points sit", "First two principal components.")
+    header("Where the core, border and noise points sit", "Projected onto the first two principal components.")
     fig = go.Figure()
     for name, mask_, colr, sz in (("Core", core, "#8fb3cf", 4), ("Border", border, ORANGE, 5), ("Noise", noise, RED, 6)):
         fig.add_scatter(x=pcs[mask_, 0], y=pcs[mask_, 1], mode="markers", name=f"{name} ({mask_.sum():,})",
@@ -1925,7 +2074,7 @@ def page_clustering():
     rows = []
     for f in (0.65, 0.80, 0.90, 1.00, 1.15):
         e = round(knee_eps * f, 2)
-        lb, _ = dbscan_run(X, e, minpts)
+        lb, _ = dbscan_run(X_db, e, minpts)
         rows.append([e, len(set(lb)) - (1 if -1 in lb else 0), int((lb == -1).sum()), (lb == -1).mean()])
     sweep = pd.DataFrame(rows, columns=["eps", "Clusters", "Noise sellers", "Noise share"])
     table(sweep.style.format({"eps": "{:.2f}", "Noise sellers": "{:,}", "Noise share": "{:.1%}"}))
@@ -1933,8 +2082,8 @@ def page_clustering():
     callout(
         "One blob at every radius" if one else "The number of clusters changes with eps",
         ("Every eps gives a single cluster; widening it only absorbs more of the noise points into that one cluster. "
-         "The notebook found the same in the 6-D autoencoder space (eps 2.20, minPts 12: 1 cluster, 4.4% noise). "
-         "There is no density valley to separate groups of sellers.")
+         "Even in the 6-D autoencoder space (eps 2.20, minPts 12: 1 cluster, 4.4% noise), there is no density valley "
+         "separating distinct seller groups.")
         if one else
         "More than one cluster appears at some radii. Check the noise share: clusters that only exist at one eps are fragile.",
     )
@@ -1979,20 +2128,25 @@ def page_clustering():
     st.markdown("## OPTICS: reachability plot")
     st.write(
         "OPTICS orders the sellers so that neighbours are next to each other and records how far each is from the previous group "
-        "(its reachability distance). A cluster is a valley in this plot; a cluster boundary is a tall wall. "
-        "Settings: minPts 25, xi 0.04, minimum cluster size 1.5%."
+        "(its reachability distance). A cluster is a valley in this plot; a cluster boundary is a tall wall (xi = 0.04, min cluster size = 1.5%)."
     )
-    reach, core_d, order, lab_op = optics_run(X)
+    opt_space = st.radio("Feature space", ["21D Standardized (minPts = 25)", "6D Autoencoder latent (minPts = 20)"],
+                         horizontal=True, key="opt_space")
+    is_op_6d = opt_space.startswith("6D")
+    X_op = autoencoder_latent(X, k=6) if is_op_6d else X
+    reach, core_d, order, lab_op = optics_run(X_op, 20 if is_op_6d else 25)
     r = reach[order]
     fin = r[np.isfinite(r)]
     cap = float(np.percentile(fin, 99.5))
     p90 = float(np.percentile(fin, 90))
     cut_e = st.slider("Horizontal cut height (eps')", round(float(np.percentile(fin, 50)), 2), round(cap, 2), round(p90, 2), 0.05,
+                      key=f"opt_cut_{is_op_6d}",
                       help="Cutting the plot at one height gives the same result as DBSCAN with that eps. Default: the 90th percentile.")
-    fig = go.Figure(go.Bar(x=np.arange(n), y=np.where(np.isfinite(r), np.minimum(r, cap), np.nan), marker_color=BLUE,
+    fig = go.Figure(go.Bar(x=np.arange(n), y=np.where(np.isfinite(r), np.minimum(r, cap), np.nan), marker_color=GREEN if is_op_6d else BLUE,
                            marker_line_width=0, hoverinfo="skip"))
     fig.add_hline(y=cut_e, line_dash="dash", line_color=RED, annotation_text=f"eps' = {cut_e:.2f}", annotation_position="top right")
-    style(fig, 360, bargap=0, xaxis=dict(title="Sellers in OPTICS order", showticklabels=False), yaxis=dict(title="Reachability distance"))
+    style(fig, 360, bargap=0, xaxis=dict(title=f"Sellers in {'6D Autoencoder' if is_op_6d else '21D'} OPTICS order", showticklabels=False),
+          yaxis=dict(title="Reachability distance"))
     show(fig)
     st.caption(f"The axis is cut at the 99.5th percentile ({cap:.1f}) for readability; the largest reachability distance is {fin.max():.1f}.")
     from sklearn.cluster import cluster_optics_dbscan
@@ -2007,8 +2161,8 @@ def page_clustering():
     callout(
         "One long, shallow valley" if n_xi <= 1 else "Several valleys found",
         ("The plot is one broad valley with spikes for isolated sellers; there are no deep, separated valleys. "
-         "The notebook also found a single cluster in the 6-D autoencoder space (minPts 20), so the result does not come from "
-         "the curse of dimensionality alone.")
+         "Both the 21-D standardized matrix (minPts = 25) and 6-D autoencoder space (minPts = 20) collapse into one cluster, "
+         "showing the continuum is not just an artifact of high dimensionality.")
         if n_xi <= 1 else
         "The xi method separated more than one valley. Compare with the horizontal cut: valleys that disappear when the cut moves are not robust.",
     )
@@ -2016,7 +2170,7 @@ def page_clustering():
     callout(
         "What the five algorithms add up to",
         "K-Means and Ward can always cut a continuum into pieces, but their scores stay low and disagree. DBSCAN and OPTICS see one dense "
-        "cloud. Mean-Shift only isolates a handful of extreme sellers. Taken together this supports the choice on page 8: "
+        "cloud in both 21D and 6D. Mean-Shift only isolates a handful of extreme sellers. Taken together this supports the choice on page 8: "
         "interpretable, rule-based seller tiers instead of algorithmic clusters.",
     )
 
@@ -2073,15 +2227,11 @@ CHALLENGES = {
         ("Frequent words are not distinctive", "Common words rank high in both groups.",
          "Ranked by the TF-IDF difference between 1-star and 5-star reviews.", "Clear complaint vs praise vocabularies."),
     ],
-    "Graph & association rules": [
+    "Graph analysis": [
         ("Community detection found one group", "The network is dense (density 0.56) and routed through SP.",
          "Used PageRank, betweenness and route-level metrics instead.", "SP is the hub (61% of inter-state outflow)."),
         ("Rare routes look extreme by chance", "Routes with a handful of orders can show 100% late.",
          "Only ranked routes with at least 100 orders (adjustable).", "70 of 409 routes qualify."),
-        ("Almost no multi-category baskets", "97.9% of orders have one category; only 786 baskets.",
-         "Changed the question: tagged each order with route, delay, freight, distance, handling and mined rules for a bad review.", "95,830 transactions x 55 items, 4,272 itemsets."),
-        ("Delay tags dominate every rule", "The obvious cause hides everything else.",
-         "Re-ran the ranking excluding rules with a delay tag.", "Slow handling plus Northeast reaches lift about 1.6 even without delay."),
     ],
     "Dimensionality reduction & clustering": [
         ("Missing values and scale in seller features", "118-125 sellers lack timing features; counts and revenue are skewed.",
@@ -2111,12 +2261,107 @@ def page_challenges():
                 st.markdown(f"**Result.** {result}")
 
 
+# ===========================================================================
+# CONCLUSIONS
+# ===========================================================================
+def page_conclusions():
+    """Render a synthesis of the dashboard's verified findings and takeaways."""
+    page_intro(
+        "Conclusions",
+        "What we found across orders, delivery stages, review text, geography, and sellers",
+        "Bringing together the empirical results from Sections 1-8: why Olist deliveries arrive late, how delays "
+        "shape customer ratings, and what the data supports for operations and seller management.",
+    )
+
+    delivered = filt.dropna(subset=["is_late"])
+    late = delivered[delivered["is_late"] == 1]
+    ontime = delivered[delivered["is_late"] == 0]
+    bad_4plus = filt[filt["lateness_bucket"].isin(["4-7 Days Late", ">7 Days Late"])]
+    cross = delivered.groupby("is_cross_state")["is_late"].mean()
+    shipped_late = late["seller_shipped_late"].mean() if "seller_shipped_late" in late and len(late) else np.nan
+    on_time_dispatch = (1 - shipped_late) if pd.notna(shipped_late) else np.nan
+
+    c = st.columns(4)
+    c[0].metric("Late deliveries", pct(delivered["is_late"].mean()) if len(delivered) else "n/a")
+    c[1].metric(
+        "Rating drop when late",
+        f"{ontime['review_score'].mean():.2f} -> {late['review_score'].mean():.2f}"
+        if len(ontime) and len(late) else "n/a",
+        help="Mean review score for on-time vs late delivered orders in the current selection.",
+    )
+    c[2].metric(
+        "Late despite on-time dispatch",
+        pct(on_time_dispatch, 0),
+        help="Share of late orders handed to the carrier before the seller's shipping deadline.",
+    )
+    c[3].metric(
+        "4+ days late low reviews",
+        pct(low_review_rate(bad_4plus), 0),
+        help=f"Share of 1-2 star reviews when 4+ days late (overall selection baseline: {pct(low_review_rate(filt), 0)}).",
+    )
+
+    st.markdown("## Core findings")
+    left, right = st.columns(2)
+    with left:
+        callout(
+            "1. Transit time and flat promises drive lateness, not seller packing",
+            f"Only <b>{pct(shipped_late, 0)}</b> of late orders missed the seller dispatch deadline. Carrier transit "
+            f"accounts for the gap (median <b>{late['carrier_transit_days'].median():.1f}</b> days vs "
+            f"<b>{ontime['carrier_transit_days'].median():.1f}</b> for on-time orders), while Olist's estimated delivery "
+            f"window is nearly identical for orders that arrive late (<b>{late['estimated_delivery_days'].mean():.1f}</b> d) "
+            f"and on time (<b>{ontime['estimated_delivery_days'].mean():.1f}</b> d)."
+            if len(late) and len(ontime) else
+            "Select a filter range with both late and on-time delivered orders to compare dispatch and transit timings.",
+        )
+        callout(
+            "2. Delivery delays are the primary driver of 1-2 star reviews",
+            f"On-time orders average <b>{ontime['review_score'].mean():.2f}</b> stars vs "
+            f"<b>{late['review_score'].mean():.2f}</b> for late orders, and orders 4+ days late receive 1-2 star "
+            f"reviews <b>{pct(low_review_rate(bad_4plus), 0)}</b> of the time (baseline: "
+            f"<b>{pct(low_review_rate(filt), 0)}</b>). Portuguese TF-IDF with negations preserved confirms that "
+            "complaints center on non-delivery (<i>nao recebi</i>, <i>nao entregue</i>, <i>nao chegou</i>), noting that "
+            "comments are missing not at random because unhappy buyers write far more often."
+            if len(late) and len(ontime) else
+            "Portuguese TF-IDF with negations preserved shows complaints center on non-delivery rather than product defects.",
+        )
+        callout(
+            "3. Skewed distributions require rank tests and careful imputation",
+            "Order price, freight, weight, and approval time are heavily right-skewed, so means diverge sharply from "
+            "medians and log or Yeo-Johnson transforms are needed before parametric modeling. On masked product dimensions, "
+            "MICE achieved the lowest RMSE across all four features while median gave lower MAE on heavily skewed weight.",
+        )
+    with right:
+        cross_txt = (
+            f"Cross-state orders arrive late <b>{pct(cross.get(1))}</b> of the time vs <b>{pct(cross.get(0))}</b> "
+            "within the same state. "
+            if len(cross) == 2 else ""
+        )
+        callout(
+            "4. Sao Paulo anchors a dense network with risky long corridors",
+            f"{cross_txt}Sao Paulo ships ~61% of inter-state volume and dominates betweenness centrality, so the 27-state "
+            "graph forms one connected hub rather than separate communities. The highest late rates appear on long "
+            "corridors from SP to the Northeast (e.g., SP to AL at 26% and SP to MA at 21%), while SP to RJ (15.5%) "
+            "generates the largest count of late deliveries.",
+        )
+        seller_txt = ""
+        if sellers is not None and len(sellers):
+            n_risk = int((sellers["tier"] == "Tier 4 - At-risk").sum())
+            n_star = int((sellers["tier"] == "Tier 1 - Star").sum())
+            seller_txt = f" Of {len(sellers):,} sellers, <b>{n_star:,}</b> sit in Tier 1 (Star) and <b>{n_risk:,}</b> in Tier 4 (At-risk)."
+        callout(
+            "5. Sellers form a continuum, making rule-based tiers more useful than clusters",
+            "Across K-Means, DBSCAN, Mean-Shift, and OPTICS (in both 21-D standardized and 6-D autoencoder spaces), "
+            "density methods collapse sellers into one main cloud and K-Means silhouettes stay low (0.19 at k=3). "
+            f"Business-rule tiers paired with a 0-100 reliability score separate high performers from at-risk sellers cleanly.{seller_txt}",
+        )
+
+
 # ---------------------------------------------------------------------------
 # Router
 # ---------------------------------------------------------------------------
 ROUTES = dict(zip(PAGES, [
     page_overview, page_processing, page_delivery, page_statistics, page_outliers, page_text, page_geo,
-    page_rules, page_sellers, page_clustering, page_challenges,
+    page_sellers, page_clustering, page_conclusions, page_challenges,
 ]))
 ROUTES[page]()
 
