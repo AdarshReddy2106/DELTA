@@ -1,472 +1,33 @@
 """
-DELTA — Delivery Estimate, Lateness & Trust Analytics
-Streamlit Dashboard  •  DS3030 Data Analytics Final Project
+DELTA - Delivery Estimate, Lateness & Trust Analytics
+Streamlit dashboard for the DS3030 Data Analytics project (Olist Brazilian e-commerce).
+
+Run from the project folder (the one that contains PROCESSED_DATA/):
+    streamlit run app.py
 """
 
 from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 import streamlit as st
+from scipy import stats
 
-# ──────────────────────────────────────────────────────────────
-# 0. PAGE CONFIG & DESIGN SYSTEM
-# ──────────────────────────────────────────────────────────────
-st.set_page_config(
-    page_title="DELTA Analytics Dashboard",
-    page_icon="📦",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
+# ---------------------------------------------------------------------------
+# Page setup and a deliberately plain look
+# ---------------------------------------------------------------------------
+st.set_page_config(page_title="DELTA - Olist delivery analytics", layout="wide")
 
-# Color tokens
-BG_CANVAS = "#0b0f17"
-BG_SURFACE = "#111827"
-BG_CARD = "#141c2e"
-BORDER_SUBTLE = "rgba(148, 163, 184, 0.14)"
-TEXT_PRIMARY = "#f1f5f9"
-TEXT_SECONDARY = "#94a3b8"
-TEXT_MUTED = "#64748b"
-
-CYAN = "#38bdf8"
-GREEN = "#22c55e"
-TEAL = "#2dd4bf"
-AMBER = "#f59e0b"
-ORANGE = "#fb923c"
-RED = "#f43f5e"
-INDIGO = "#818cf8"
-SLATE_LINE = "#475569"
-COLORS = [CYAN, GREEN, AMBER, RED, INDIGO, TEAL, ORANGE, "#a78bfa"]
-
-st.markdown("""
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap');
-
-/* Base canvas & typography */
-html, body, [class*="css"] {
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-}
-.stApp {
-    background: radial-gradient(circle at 18% 0%, rgba(56, 189, 248, 0.06) 0%, transparent 42%),
-                radial-gradient(circle at 82% 0%, rgba(34, 197, 94, 0.04) 0%, transparent 40%),
-                #0b0f17;
-    color: #f1f5f9;
-}
-
-/* Top header bar — blend into dark canvas */
-[data-testid="stHeader"] {
-    background: rgba(11, 15, 23, 0.82) !important;
-    backdrop-filter: blur(12px);
-    border-bottom: 1px solid rgba(148, 163, 184, 0.08);
-}
-
-/* Main container breathing room */
-.block-container {
-    padding-top: 2.2rem !important;
-    padding-bottom: 2.5rem !important;
-    max-width: 1440px;
-}
-
-/* Sidebar styling */
-[data-testid="stSidebar"] {
-    background-color: #0e1420 !important;
-    border-right: 1px solid rgba(148, 163, 184, 0.12);
-}
-[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p,
-[data-testid="stSidebar"] label {
-    color: #cbd5e1 !important;
-}
-
-/* Brand block in sidebar */
-.sidebar-brand {
-    padding: 14px 16px;
-    border-radius: 12px;
-    background: linear-gradient(135deg, rgba(56, 189, 248, 0.12) 0%, rgba(45, 212, 191, 0.05) 100%);
-    border: 1px solid rgba(56, 189, 248, 0.22);
-    margin-bottom: 12px;
-}
-.sidebar-brand-title {
-    font-family: 'Plus Jakarta Sans', sans-serif;
-    font-size: 1.25rem;
-    font-weight: 800;
-    letter-spacing: -0.02em;
-    color: #f8fafc;
-    margin: 0;
-}
-.sidebar-brand-sub {
-    font-size: 0.78rem;
-    color: #94a3b8;
-    margin-top: 4px;
-    line-height: 1.35;
-}
-
-/* Hero banner */
-.hero-wrap {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    padding: 18px 22px;
-    border-radius: 16px;
-    background: linear-gradient(135deg, rgba(20, 28, 46, 0.92) 0%, rgba(15, 23, 42, 0.85) 100%);
-    border: 1px solid rgba(148, 163, 184, 0.14);
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
-    margin-bottom: 18px;
-}
-.hero-kicker {
-    display: inline-block;
-    font-size: 0.7rem;
-    font-weight: 700;
-    letter-spacing: 0.09em;
-    text-transform: uppercase;
-    color: #38bdf8;
-    background: rgba(56, 189, 248, 0.12);
-    border: 1px solid rgba(56, 189, 248, 0.25);
-    padding: 3px 10px;
-    border-radius: 999px;
-    margin-bottom: 8px;
-}
-.hero-title {
-    font-family: 'Plus Jakarta Sans', sans-serif;
-    font-size: 1.65rem;
-    font-weight: 800;
-    letter-spacing: -0.02em;
-    color: #f8fafc;
-    margin: 0;
-    line-height: 1.2;
-}
-.hero-sub {
-    font-size: 0.9rem;
-    color: #94a3b8;
-    margin: 4px 0 0 0;
-}
-.hero-pill {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.78rem;
-    color: #cbd5e1;
-    background: rgba(15, 23, 42, 0.85);
-    border: 1px solid rgba(148, 163, 184, 0.18);
-    padding: 8px 14px;
-    border-radius: 10px;
-    white-space: nowrap;
-}
-
-/* Custom KPI cards */
-.kpi-card {
-    background: linear-gradient(180deg, #151e31 0%, #111827 100%);
-    border: 1px solid rgba(148, 163, 184, 0.14);
-    border-top: 3px solid var(--accent, #38bdf8);
-    border-radius: 12px;
-    padding: 14px 16px;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
-    height: 100%;
-    transition: transform 0.15s ease, border-color 0.15s ease;
-}
-.kpi-card:hover {
-    border-color: rgba(148, 163, 184, 0.28);
-    transform: translateY(-1px);
-}
-.kpi-label {
-    font-size: 0.72rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: #94a3b8;
-    margin-bottom: 6px;
-}
-.kpi-value {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 1.45rem;
-    font-weight: 700;
-    color: #f8fafc;
-    line-height: 1.15;
-    white-space: nowrap;
-}
-.kpi-sub {
-    font-size: 0.75rem;
-    color: #64748b;
-    margin-top: 6px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-/* Sub-metric cards inside tabs (native st.metric) */
-[data-testid="stMetric"] {
-    background: #131b2c;
-    border: 1px solid rgba(148, 163, 184, 0.14);
-    border-radius: 12px;
-    padding: 14px 16px;
-}
-[data-testid="stMetricLabel"] p {
-    font-size: 0.78rem !important;
-    color: #94a3b8 !important;
-    font-weight: 600 !important;
-}
-[data-testid="stMetricValue"] {
-    font-family: 'JetBrains Mono', monospace !important;
-    font-size: 1.35rem !important;
-    font-weight: 700 !important;
-    color: #f8fafc !important;
-}
-
-/* Bordered chart containers */
-[data-testid="stVerticalBlockBorderWrapper"] {
-    background: rgba(17, 24, 39, 0.72);
-    border: 1px solid rgba(148, 163, 184, 0.13) !important;
-    border-radius: 14px !important;
-}
-
-/* Tabs navigation bar */
-.stTabs [data-baseweb="tab-list"] {
-    gap: 6px;
-    background-color: #111827;
-    border: 1px solid rgba(148, 163, 184, 0.13);
-    border-radius: 12px;
-    padding: 5px;
-    margin-bottom: 10px;
-}
-.stTabs [data-baseweb="tab"] {
-    border-radius: 8px;
-    padding: 8px 14px;
-    font-size: 0.85rem;
-    font-weight: 600;
-    color: #94a3b8 !important;
-    background-color: transparent;
-    border: none !important;
-    transition: all 0.15s ease;
-}
-.stTabs [data-baseweb="tab"]:hover {
-    color: #f1f5f9 !important;
-    background-color: rgba(148, 163, 184, 0.08);
-}
-.stTabs [aria-selected="true"] {
-    background: linear-gradient(135deg, rgba(56, 189, 248, 0.22) 0%, rgba(45, 212, 191, 0.16) 100%) !important;
-    color: #f8fafc !important;
-    border: 1px solid rgba(56, 189, 248, 0.35) !important;
-}
-.stTabs [data-baseweb="tab-highlight"] {
-    display: none !important;
-}
-.stTabs [data-baseweb="tab-border"] {
-    display: none !important;
-}
-
-/* Section banner */
-.section-banner {
-    padding: 12px 16px;
-    border-radius: 12px;
-    background: linear-gradient(90deg, rgba(56, 189, 248, 0.09) 0%, rgba(17, 24, 39, 0.3) 100%);
-    border-left: 3px solid #38bdf8;
-    border-top: 1px solid rgba(148, 163, 184, 0.1);
-    border-right: 1px solid rgba(148, 163, 184, 0.06);
-    border-bottom: 1px solid rgba(148, 163, 184, 0.06);
-    margin-bottom: 14px;
-}
-.section-kicker {
-    font-size: 0.68rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: #38bdf8;
-}
-.section-title {
-    font-family: 'Plus Jakarta Sans', sans-serif;
-    font-size: 1.18rem;
-    font-weight: 700;
-    color: #f8fafc;
-    margin: 2px 0;
-}
-.section-sub {
-    font-size: 0.84rem;
-    color: #94a3b8;
-    margin: 0;
-}
-
-/* Insight callout card */
-.insight-card {
-    padding: 14px 18px;
-    border-radius: 12px;
-    background: rgba(20, 28, 46, 0.85);
-    border: 1px solid rgba(148, 163, 184, 0.14);
-    border-left: 3px solid var(--callout-accent, #38bdf8);
-    margin-top: 10px;
-}
-.insight-title {
-    font-size: 0.82rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--callout-accent, #38bdf8);
-    margin-bottom: 6px;
-}
-.insight-body {
-    font-size: 0.88rem;
-    color: #cbd5e1;
-    line-height: 1.55;
-}
-
-/* Hide default chrome */
-#MainMenu { visibility: hidden; }
-footer { visibility: hidden; }
-hr { border-color: rgba(148, 163, 184, 0.12) !important; margin: 14px 0 !important; }
-
-/* Custom subtle scrollbars */
-::-webkit-scrollbar { width: 7px; height: 7px; }
-::-webkit-scrollbar-track { background: #0b0f17; }
-::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
-::-webkit-scrollbar-thumb:hover { background: #475569; }
-</style>
-""", unsafe_allow_html=True)
-
-
-# ──────────────────────────────────────────────────────────────
-# UI & CHART HELPERS
-# ──────────────────────────────────────────────────────────────
-def render_kpi_card(label: str, value: str, subtext: str = "", accent: str = CYAN):
-    st.markdown(
-        f"""
-        <div class="kpi-card" style="--accent:{accent};">
-            <div class="kpi-label">{label}</div>
-            <div class="kpi-value">{value}</div>
-            <div class="kpi-sub">{subtext}</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-def section_banner(kicker: str, title: str, subtitle: str):
-    st.markdown(
-        f"""
-        <div class="section-banner">
-            <div class="section-kicker">{kicker}</div>
-            <div class="section-title">{title}</div>
-            <p class="section-sub">{subtitle}</p>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-def insight_box(title: str, body: str, accent: str = CYAN):
-    st.markdown(
-        f"""
-        <div class="insight-card" style="--callout-accent:{accent};">
-            <div class="insight-title">💡 {title}</div>
-            <div class="insight-body">{body}</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-def style_fig(fig: go.Figure, title: str = "", height: int = 360, **extra) -> go.Figure:
-    layout_cfg = dict(
-        template="plotly_dark",
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        font=dict(family="Inter, sans-serif", size=12, color="#cbd5e1"),
-        margin=dict(l=20, r=20, t=50 if title else 24, b=28),
-        height=height,
-        hoverlabel=dict(
-            bgcolor="#0f172a",
-            bordercolor="#334155",
-            font=dict(color="#f8fafc", size=12),
-        ),
-        xaxis=dict(
-            gridcolor="rgba(148, 163, 184, 0.08)",
-            zerolinecolor="rgba(148, 163, 184, 0.14)",
-        ),
-        yaxis=dict(
-            gridcolor="rgba(148, 163, 184, 0.08)",
-            zerolinecolor="rgba(148, 163, 184, 0.14)",
-        ),
-    )
-    if title:
-        layout_cfg["title"] = dict(
-            text=title,
-            font=dict(family="Plus Jakarta Sans, Inter, sans-serif", size=14.5, color="#f8fafc"),
-            x=0.01,
-            xanchor="left",
-            y=0.96,
-        )
-    layout_cfg.update(extra)
-    fig.update_layout(**layout_cfg)
-    return fig
-
-
-def format_brl_compact(amount: float) -> tuple[str, str]:
-    if amount >= 1_000_000:
-        return f"R$ {amount / 1_000_000:.2f}M", f"Exact: R$ {amount:,.0f}"
-    if amount >= 1_000:
-        return f"R$ {amount / 1_000:.1f}K", f"Exact: R$ {amount:,.0f}"
-    return f"R$ {amount:,.0f}", "Total merchandise revenue"
-
-
-# ──────────────────────────────────────────────────────────────
-# 1. DATA LOADING (cached)
-# ──────────────────────────────────────────────────────────────
-DATA = Path("PROCESSED_DATA")
-
-
-@st.cache_data(show_spinner="Loading order data …")
-def load_orders():
-    return pd.read_csv(
-        DATA / "master_orders.csv",
-        parse_dates=[
-            "order_purchase_timestamp",
-            "order_delivered_customer_date",
-            "order_estimated_delivery_date",
-            "purchase_date",
-        ],
-    )
-
-
-@st.cache_data(show_spinner="Loading seller scorecard …")
-def load_sellers():
-    return pd.read_csv(DATA / "seller_scorecard.csv")
-
-
-@st.cache_data(show_spinner="Loading time-series …")
-def load_timeseries():
-    return pd.read_csv(DATA / "daily_orders_smoothed.csv", parse_dates=["purchase_date"])
-
-
-@st.cache_data(show_spinner="Loading route data …")
-def load_routes():
-    return pd.read_csv(DATA / "graph_route_performance.csv")
-
-
-@st.cache_data(show_spinner="Loading state metrics …")
-def load_state_metrics():
-    return pd.read_csv(DATA / "graph_state_metrics.csv")
-
-
-@st.cache_data(show_spinner="Loading NLP data …")
-def load_nlp():
-    top = pd.read_csv(DATA / "nlp_top_terms.csv")
-    dist = pd.read_csv(DATA / "nlp_distinctive_terms.csv")
-    return top, dist
-
-
-@st.cache_data(show_spinner="Loading association rules …")
-def load_rules():
-    risk = pd.read_csv(DATA / "rules_bad_review_risk.csv")
-    copurchase = pd.read_csv(DATA / "rules_category_copurchase.csv")
-    return risk, copurchase
-
-
-orders = load_orders()
-sellers = load_sellers()
-ts = load_timeseries()
-routes = load_routes()
-state_metrics = load_state_metrics()
-nlp_top, nlp_dist = load_nlp()
-rules_risk, rules_copurchase = load_rules()
+INK = "#1f2933"
+MUTED = "#6b7580"
+GRID = "#e4e7ea"
+BLUE = "#2f6f9f"
+ORANGE = "#d9822b"
+RED = "#b8432f"
+GREEN = "#4a8f5d"
+GREY = "#9aa3ab"
 
 BUCKET_ORDER = [
     "Early (>1d early)",
@@ -475,1307 +36,1526 @@ BUCKET_ORDER = [
     "4-7 Days Late",
     ">7 Days Late",
 ]
-
-# ──────────────────────────────────────────────────────────────
-# 2. SIDEBAR — GLOBAL FILTERS (clean, clutter-free defaults)
-# ──────────────────────────────────────────────────────────────
-with st.sidebar:
-    st.markdown(
-        """
-        <div class="sidebar-brand">
-            <div class="sidebar-brand-title">📦 DELTA</div>
-            <div class="sidebar-brand-sub">Delivery Estimate, Lateness & Trust Analytics</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    st.markdown("#### Global Filters")
-
-    years = sorted(orders["purchase_year"].dropna().unique().astype(int).tolist())
-    sel_years = st.pills(
-        "Purchase Year",
-        options=years,
-        selection_mode="multi",
-        default=years,
-        key="year_filter",
-    )
-    if not sel_years:
-        sel_years = years
-
-    delivery_scope = st.segmented_control(
-        "Order Scope",
-        options=["All", "Delivered", "Late Only"],
-        default="All",
-        key="scope_filter",
-    )
-
-    all_states = sorted(orders["customer_state"].dropna().unique().tolist())
-    sel_states = st.multiselect(
-        "Customer State",
-        options=all_states,
-        default=[],
-        placeholder="All 27 states (click to narrow)",
-        key="state_filter",
-    )
-
-    all_cats = orders["primary_category"].value_counts().index.tolist()
-    sel_cats = st.multiselect(
-        "Product Category",
-        options=all_cats,
-        default=[],
-        placeholder=f"All {len(all_cats)} categories (click to narrow)",
-        key="cat_filter",
-    )
-
-    # Apply global filters
-    mask = orders["purchase_year"].isin(sel_years)
-    if delivery_scope == "Delivered":
-        mask &= orders["order_status"] == "delivered"
-    elif delivery_scope == "Late Only":
-        mask &= orders["is_late"] == 1
-    if sel_states:
-        mask &= orders["customer_state"].isin(sel_states)
-    if sel_cats:
-        mask &= orders["primary_category"].isin(sel_cats)
-
-    filt = orders[mask].copy()
-
-    st.markdown("---")
-    coverage = len(filt) / len(orders) if len(orders) else 0.0
-    st.caption(f"**Active Scope:** {len(filt):,} / {len(orders):,} orders ({coverage * 100:.1f}%)")
-    st.progress(min(max(coverage, 0.0), 1.0))
-
-    st.markdown(
-        "<div style='color:#64748b;font-size:0.74rem;margin-top:14px;line-height:1.45;'>"
-        "DS3030 • Data Analytics<br>Olist Brazilian E-Commerce (2016–2018)"
-        "</div>",
-        unsafe_allow_html=True,
-    )
-
-# ──────────────────────────────────────────────────────────────
-# 3. HERO HEADER & KPI CARDS
-# ──────────────────────────────────────────────────────────────
-active_years_lbl = ", ".join(str(y) for y in sorted(sel_years))
-active_state_lbl = ", ".join(sel_states[:4]) + ("…" if len(sel_states) > 4 else "") if sel_states else "All 27 States"
-active_cat_lbl = f"{len(sel_cats)} Categories" if sel_cats else f"All {len(all_cats)} Categories"
+BUCKET_COLORS = dict(zip(BUCKET_ORDER, [GREEN, "#8fbf9f", "#e3b23c", ORANGE, RED]))
+BUCKET_SHORT = {
+    "Early (>1d early)": "Early",
+    "On Time (-1d to 0d)": "On time",
+    "1-3 Days Late": "1-3 d late",
+    "4-7 Days Late": "4-7 d late",
+    ">7 Days Late": ">7 d late",
+}
 
 st.markdown(
     f"""
-    <div class="hero-wrap">
-        <div>
-            <div class="hero-kicker">DS3030 • Olist E-Commerce Analytics</div>
-            <h1 class="hero-title">DELTA — Delivery Estimate, Lateness &amp; Trust Analytics</h1>
-            <p class="hero-sub">End-to-end breakdown of delivery bottlenecks, geographic risk routes, NLP complaint drivers, and seller clusters.</p>
-        </div>
-        <div class="hero-pill">
-            {active_years_lbl} &nbsp;|&nbsp; {active_state_lbl} &nbsp;|&nbsp; {active_cat_lbl}
-        </div>
-    </div>
+    <style>
+    .block-container {{ padding-top: 2rem; padding-bottom: 3rem; max-width: 1180px; }}
+    h1 {{ font-size: 1.9rem !important; font-weight: 650 !important; }}
+    h2 {{ font-size: 1.3rem !important; font-weight: 650 !important; margin-top: 1.6rem !important; }}
+    h3 {{ font-size: 1.05rem !important; font-weight: 650 !important; }}
+    [data-testid="stMetric"] {{
+        background: #ffffff; border: 1px solid {GRID}; border-radius: 6px; padding: 10px 14px;
+    }}
+    [data-testid="stMetricLabel"] p {{ font-size: 0.82rem; color: {MUTED}; }}
+    [data-testid="stMetricValue"] {{ font-size: 1.55rem; }}
+    .callout {{
+        border-left: 3px solid {BLUE}; background: #eef3f7; padding: 0.75rem 1rem;
+        border-radius: 3px; margin: 0.4rem 0 1.2rem 0; color: {INK}; line-height: 1.5;
+    }}
+    .callout b.t {{ display: block; margin-bottom: 2px; }}
+    .chart-title {{ font-weight: 650; margin: 0.6rem 0 0 0; color: {INK}; }}
+    .chart-sub {{ color: {MUTED}; font-size: 0.86rem; margin: 0 0 0.2rem 0; }}
+    </style>
     """,
     unsafe_allow_html=True,
 )
 
-k1, k2, k3, k4, k5, k6 = st.columns(6)
-rev_total = filt["total_price"].sum() if len(filt) else 0.0
-rev_short, rev_sub = format_brl_compact(rev_total)
-late_pct = filt["is_late"].mean() * 100 if filt["is_late"].notna().any() else 0.0
-late_count = int((filt["is_late"] == 1).sum())
-avg_rev = filt["review_score"].mean() if filt["review_score"].notna().any() else 0.0
-avg_del = filt["total_delivery_days"].mean() if filt["total_delivery_days"].notna().any() else 0.0
-med_del = filt["total_delivery_days"].median() if filt["total_delivery_days"].notna().any() else 0.0
-avg_dist = filt["distance_km"].mean() if filt["distance_km"].notna().any() else 0.0
-med_dist = filt["distance_km"].median() if filt["distance_km"].notna().any() else 0.0
 
-with k1:
-    render_kpi_card("Total Orders", f"{len(filt):,}", f"{len(filt)/len(orders)*100:.1f}% of dataset", CYAN)
-with k2:
-    render_kpi_card("Total Revenue", rev_short, rev_sub, GREEN)
-with k3:
-    render_kpi_card("Late Delivery %", f"{late_pct:.1f}%", f"{late_count:,} late orders", RED)
-with k4:
-    render_kpi_card("Avg Review Score", f"{avg_rev:.2f} ★", f"Median: {filt['review_score'].median():.0f} ★" if filt["review_score"].notna().any() else "—", AMBER)
-with k5:
-    render_kpi_card("Avg Delivery", f"{avg_del:.1f} d", f"Median: {med_del:.1f} days", TEAL)
-with k6:
-    render_kpi_card("Avg Distance", f"{avg_dist:.0f} km", f"Median: {med_dist:.0f} km", INDIGO)
+# ---------------------------------------------------------------------------
+# Small helpers
+# ---------------------------------------------------------------------------
+def show(fig, **kw):
+    try:
+        st.plotly_chart(fig, width="stretch", **kw)
+    except TypeError:
+        st.plotly_chart(fig, use_container_width=True, **kw)
 
-st.markdown("<div style='height:12px;'></div>", unsafe_allow_html=True)
 
-if len(filt) == 0:
-    st.warning("No orders match the current sidebar filters. Clear or widen one of the filters to view charts.")
+def table(df, **kw):
+    try:
+        st.dataframe(df, width="stretch", hide_index=True, **kw)
+    except TypeError:
+        st.dataframe(df, use_container_width=True, hide_index=True, **kw)
+
+
+def style(fig, height=380, legend=False, **layout):
+    fig.update_layout(
+        template="simple_white",
+        height=height,
+        margin=dict(l=10, r=20, t=20, b=10),
+        font=dict(family="Source Sans Pro, Arial, sans-serif", size=13, color=INK),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        showlegend=legend,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0, title_text=""),
+        hoverlabel=dict(bgcolor="white", font_size=12),
+    )
+    fig.update_xaxes(showgrid=False, automargin=True, linecolor=GREY, ticks="outside")
+    fig.update_yaxes(showgrid=True, gridcolor=GRID, zeroline=False, automargin=True)
+    fig.update_layout(**layout)
+    return fig
+
+
+def header(title, sub=""):
+    st.markdown(f"<div class='chart-title'>{title}</div>", unsafe_allow_html=True)
+    if sub:
+        st.markdown(f"<div class='chart-sub'>{sub}</div>", unsafe_allow_html=True)
+
+
+def callout(title, body):
+    st.markdown(f"<div class='callout'><b class='t'>{title}</b>{body}</div>", unsafe_allow_html=True)
+
+
+def page_intro(title, lab, text):
+    st.title(title)
+    st.caption(lab)
+    st.write(text)
+
+
+def fmt_p(p):
+    if p is None or np.isnan(p):
+        return "n/a"
+    return "< 1e-300" if p == 0 else f"{p:.2e}"
+
+
+def fmt_int(x):
+    return f"{int(round(x)):,}"
+
+
+def pct(x, d=1):
+    return "n/a" if pd.isna(x) else f"{x * 100:.{d}f}%"
+
+
+def short_tier(name):
+    return {
+        "1": "Tier 1 - Star",
+        "2": "Tier 2 - Premium",
+        "3": "Tier 3 - Standard",
+        "4": "Tier 4 - At-risk",
+    }.get(str(name).split(":")[0].replace("Tier", "").strip(), str(name))
+
+
+TIER_COLORS = {
+    "Tier 1 - Star": GREEN,
+    "Tier 2 - Premium": BLUE,
+    "Tier 3 - Standard": GREY,
+    "Tier 4 - At-risk": RED,
+}
+
+# ---------------------------------------------------------------------------
+# Data loading
+# ---------------------------------------------------------------------------
+DATA = Path(__file__).resolve().parent / "PROCESSED_DATA"
+if not DATA.exists():
+    DATA = Path("PROCESSED_DATA")
+
+ORDER_COLS = [
+    "order_id", "order_status", "order_purchase_timestamp", "purchase_date", "purchase_year",
+    "purchase_month", "purchase_dayofweek", "purchase_hour", "customer_state", "seller_state",
+    "primary_category", "total_price", "total_freight", "total_weight_g", "freight_ratio",
+    "item_count", "max_installments", "primary_payment_type", "review_score", "has_comment",
+    "approval_hours", "seller_handling_days", "carrier_transit_days", "total_delivery_days",
+    "estimated_delivery_days", "days_late", "seller_shipped_late", "is_late", "lateness_bucket",
+    "distance_km", "is_cross_state",
+]
+
+
+@st.cache_data(show_spinner="Loading orders ...")
+def load_orders():
+    full = pd.read_csv(DATA / "master_orders.csv", low_memory=False)
+    missing = full.isna().mean().sort_values(ascending=False)
+    keep = [c for c in ORDER_COLS if c in full.columns]
+    df = full[keep].copy()
+    for c in ("purchase_date", "order_purchase_timestamp"):
+        if c in df:
+            df[c] = pd.to_datetime(df[c], errors="coerce")
+    return df, missing
+
+
+@st.cache_data(show_spinner=False)
+def load_csv(name):
+    p = DATA / name
+    return pd.read_csv(p) if p.exists() else None
+
+
+if not (DATA / "master_orders.csv").exists():
+    st.error(
+        "Could not find PROCESSED_DATA/master_orders.csv. Run the notebooks first, then start the app "
+        "from the project folder that contains PROCESSED_DATA."
+    )
     st.stop()
 
-# ──────────────────────────────────────────────────────────────
-# 4. TABBED ANALYTICS WORKSPACE
-# ──────────────────────────────────────────────────────────────
-tabs = st.tabs([
-    "📦 Pipeline",
-    "⏱️ Trends",
-    "🗺️ Geography",
-    "🛡️ Data Quality",
-    "💬 Reviews & NLP",
-    "🏪 Sellers",
-    "⚠️ Risk Rules",
-    "🔎 Explorer",
-])
+orders, missing_share = load_orders()
+sellers = load_csv("seller_scorecard.csv")
+daily = load_csv("daily_orders_smoothed.csv")
+routes = load_csv("graph_route_performance.csv")
+state_metrics = load_csv("graph_state_metrics.csv")
+nlp_top = load_csv("nlp_top_terms.csv")
+nlp_dist = load_csv("nlp_distinctive_terms.csv")
+rules_risk = load_csv("rules_bad_review_risk.csv")
+rules_cop = load_csv("rules_category_copurchase.csv")
+if daily is not None:
+    daily["purchase_date"] = pd.to_datetime(daily["purchase_date"])
+if sellers is not None:
+    sellers["tier"] = sellers["seller_archetype"].map(short_tier)
 
-# ══════════════════════════════════════════════════════════════
-# TAB 1 — DELIVERY PIPELINE ANALYSIS
-# ══════════════════════════════════════════════════════════════
-with tabs[0]:
-    section_banner(
-        "Research Question 1 • Stage Decomposition",
-        "Where Do Delivery Delays Actually Come From?",
-        "Splits end-to-end fulfillment into Payment Approval → Seller Handling → Carrier Transit (Notebook 01).",
+# ---------------------------------------------------------------------------
+# Sidebar: navigation + filters
+# ---------------------------------------------------------------------------
+PAGES = [
+    "Overview",
+    "1. Data processing",
+    "2. Delivery insights",
+    "3. Statistics & transformations",
+    "4. Outliers & missing values",
+    "5. Reviews (text mining)",
+    "6. Geography & network",
+    "7. Association rules",
+    "8. Sellers: reduction & clustering",
+    "Challenges & decisions",
+]
+with st.sidebar:
+    st.markdown("### DELTA")
+    st.caption("Delivery Estimate, Lateness & Trust Analytics")
+    page = st.radio("Section", PAGES, label_visibility="collapsed")
+    st.markdown("---")
+    st.markdown("**Filters** (apply to order-level charts)")
+    years = sorted(orders["purchase_year"].dropna().astype(int).unique().tolist())
+    sel_years = st.multiselect("Purchase year", years, default=years)
+    sel_states = st.multiselect("Customer state", sorted(orders["customer_state"].dropna().unique()))
+    sel_cats = st.multiselect(
+        "Product category", orders["primary_category"].value_counts().index.tolist()
     )
 
-    stage_data = filt[["approval_hours", "seller_handling_days", "carrier_transit_days"]].dropna()
-    col_a, col_b = st.columns([3, 2], gap="medium")
+mask = orders["purchase_year"].isin(sel_years or years)
+if sel_states:
+    mask &= orders["customer_state"].isin(sel_states)
+if sel_cats:
+    mask &= orders["primary_category"].isin(sel_cats)
+filt = orders[mask]
+with st.sidebar:
+    st.caption(f"{len(filt):,} of {len(orders):,} orders selected")
 
-    with col_a:
-        with st.container(border=True):
-            if len(stage_data):
-                app_days = stage_data["approval_hours"].median() / 24.0
-                app_hrs = stage_data["approval_hours"].median()
-                hand_days = stage_data["seller_handling_days"].median()
-                trans_days = stage_data["carrier_transit_days"].median()
+if filt.empty:
+    st.warning("No orders match the filters. Widen the filters in the sidebar.")
+    st.stop()
 
-                stages_y = ["Payment Approval", "Seller Handling", "Carrier Transit"]
-                stages_x = [app_days, hand_days, trans_days]
-                stages_txt = [
-                    f"{app_days:.2f}d ({app_hrs:.1f} hrs)",
-                    f"{hand_days:.2f} days",
-                    f"{trans_days:.2f} days",
-                ]
+present_buckets = [b for b in BUCKET_ORDER if b in set(filt["lateness_bucket"].dropna())]
 
-                fig_pipe = go.Figure(go.Bar(
-                    x=stages_x,
-                    y=stages_y,
-                    orientation="h",
-                    marker=dict(color=[CYAN, AMBER, GREEN], cornerradius=6),
-                    text=stages_txt,
-                    textposition="outside",
-                    cliponaxis=False,
-                    hovertemplate="<b>%{y}</b><br>Median: %{text}<extra></extra>",
-                ))
-                style_fig(
-                    fig_pipe,
-                    title="Median Duration per Delivery Stage (Unified in Days)",
-                    height=330,
-                    xaxis_title="Median Days",
-                    yaxis=dict(autorange="reversed", showgrid=False),
-                    margin=dict(l=20, r=90, t=52, b=36),
-                )
-                st.plotly_chart(fig_pipe, width="stretch")
 
-    with col_b:
-        with st.container(border=True):
-            bucket_counts = filt["lateness_bucket"].value_counts().reindex(BUCKET_ORDER).dropna()
-            if len(bucket_counts):
-                fig_bucket = go.Figure(go.Pie(
-                    labels=bucket_counts.index,
-                    values=bucket_counts.values,
-                    hole=0.58,
-                    sort=False,
-                    marker=dict(
-                        colors=[GREEN, CYAN, AMBER, ORANGE, RED],
-                        line=dict(color="#0b0f17", width=2),
-                    ),
-                    textinfo="percent",
-                    textposition="inside",
-                    insidetextorientation="horizontal",
-                    hovertemplate="<b>%{label}</b><br>Orders: %{value:,}<br>Share: %{percent}<extra></extra>",
-                ))
-                style_fig(
-                    fig_bucket,
-                    title="Order Lateness Distribution",
-                    height=330,
-                    showlegend=True,
-                    legend=dict(
-                        orientation="h",
-                        yanchor="top",
-                        y=-0.04,
-                        xanchor="center",
-                        x=0.5,
-                        font=dict(size=11),
-                    ),
-                    margin=dict(l=16, r=16, t=48, b=56),
-                )
-                st.plotly_chart(fig_bucket, width="stretch")
+# ---------------------------------------------------------------------------
+# Shared calculations
+# ---------------------------------------------------------------------------
+def skew(x):
+    x = pd.Series(x).dropna()
+    return float(stats.skew(x, bias=False)) if len(x) > 3 else np.nan
 
-    with st.container(border=True):
-        stage_by_bucket = (
-            filt.dropna(subset=["lateness_bucket", "approval_hours", "seller_handling_days", "carrier_transit_days"])
-            .groupby("lateness_bucket")[["approval_hours", "seller_handling_days", "carrier_transit_days"]]
-            .median()
-            .reindex(BUCKET_ORDER)
-            .dropna()
-        )
-        if len(stage_by_bucket):
-            stage_by_bucket["approval_days"] = stage_by_bucket["approval_hours"] / 24.0
-            fig_stack = go.Figure()
-            for col, name, color in [
-                ("approval_days", "Payment Approval", CYAN),
-                ("seller_handling_days", "Seller Handling", AMBER),
-                ("carrier_transit_days", "Carrier Transit", GREEN),
-            ]:
-                fig_stack.add_trace(go.Bar(
-                    x=stage_by_bucket.index,
-                    y=stage_by_bucket[col].round(2),
-                    name=name,
-                    marker_color=color,
-                    hovertemplate=f"<b>%{{x}}</b><br>{name}: %{{y:.2f}} days<extra></extra>",
-                ))
-            style_fig(
-                fig_stack,
-                title="Stage-wise Median Breakdown Across Lateness Buckets",
-                height=360,
-                barmode="stack",
-                yaxis_title="Median Days",
-                legend=dict(orientation="h", y=1.12, x=0.01),
-            )
-            st.plotly_chart(fig_stack, width="stretch")
 
-    insight_box(
-        "Key Finding — Carrier Transit Dominates Delays",
-        "<b>Carrier transit</b> is the single largest bottleneck (~7.1 days median vs. ~1.8 days seller handling and ~20 minutes payment approval). "
-        "For orders arriving &gt;7 days late, courier transit balloons dramatically while approval and packing change far less—showing that carrier routing and courier SLA enforcement offer the biggest lever to cut late deliveries.",
-        accent=GREEN,
+def low_review_rate(df):
+    d = df["review_score"].dropna()
+    return (d <= 2).mean() if len(d) else np.nan
+
+
+# ===========================================================================
+# OVERVIEW
+# ===========================================================================
+def page_overview():
+    st.title("Why do orders arrive late, and what does it cost in ratings?")
+    st.write(
+        "An analysis of the Olist Brazilian marketplace (orders from 2016-2018). Starting from nine raw tables, "
+        "we built clean order and seller tables, studied how delivery delays arise, and measured how much they "
+        "hurt customer reviews. Use the sections on the left to follow the analysis in the order we did it."
     )
 
-# ══════════════════════════════════════════════════════════════
-# TAB 2 — TIME-SERIES TRENDS
-# ══════════════════════════════════════════════════════════════
-with tabs[1]:
-    section_banner(
-        "Lecture 5 • Time-Series Smoothing & Seasonality",
-        "Order Volume, Revenue & Late Rate Over Time",
-        "Raw daily counts carry strong weekday-vs-weekend oscillations; SMA, EWMA, and Rolling Median filters expose true trend & Black Friday surges.",
-    )
+    delivered = filt.dropna(subset=["is_late"])
+    c = st.columns(6)
+    c[0].metric("Orders", fmt_int(len(filt)))
+    c[1].metric("Revenue (R$)", f"{filt['total_price'].sum() / 1e6:.2f} M")
+    c[2].metric("Late deliveries", pct(delivered["is_late"].mean()))
+    c[3].metric("Average review", f"{filt['review_score'].mean():.2f} / 5")
+    c[4].metric("Median delivery", f"{filt['total_delivery_days'].median():.1f} days")
+    c[5].metric("Median distance", f"{filt['distance_km'].median():.0f} km")
 
-    with st.container(border=True):
-        c_m, c_w = st.columns([2, 1])
-        metric_labels = {
-            "raw_orders": "Daily Orders",
-            "raw_revenue": "Daily Revenue (R$)",
-            "late_rate": "Daily Late Rate (%)",
-            "avg_review": "Daily Avg Review Score",
-        }
-        with c_m:
-            ts_metric = st.selectbox(
-                "Time-Series Metric",
-                list(metric_labels.keys()),
-                format_func=lambda k: metric_labels[k],
-                index=0,
+    late = delivered[delivered["is_late"] == 1]
+    ontime = delivered[delivered["is_late"] == 0]
+    bad_4plus = filt[filt["lateness_bucket"].isin(["4-7 Days Late", ">7 Days Late"])]
+    cross = delivered.groupby("is_cross_state")["is_late"].mean()
+    shipped_late = late["seller_shipped_late"].mean() if "seller_shipped_late" in late else np.nan
+
+    st.markdown("## What the data says")
+    a, b = st.columns(2)
+    with a:
+        callout(
+            "Lateness is the main driver of bad reviews",
+            f"On-time orders average <b>{ontime['review_score'].mean():.2f}</b> stars, late orders "
+            f"<b>{late['review_score'].mean():.2f}</b>. Once an order is 4+ days late, "
+            f"<b>{pct(low_review_rate(bad_4plus), 0)}</b> of reviews are 1-2 stars "
+            f"(baseline: {pct(low_review_rate(filt), 0)}).",
+        )
+        callout(
+            "Most late orders are not the seller's fault at dispatch",
+            f"Only <b>{pct(shipped_late, 0)}</b> of late orders were handed to the carrier after the seller's "
+            "shipping deadline. The rest were late despite an on-time dispatch, so transit time and the promised "
+            "date matter more than packing speed.",
+        )
+    with b:
+        callout(
+            "The promise was not shorter for orders that ended up late",
+            f"Orders that arrived late had an estimated delivery window of "
+            f"<b>{late['estimated_delivery_days'].mean():.1f}</b> days versus "
+            f"<b>{ontime['estimated_delivery_days'].mean():.1f}</b> for on-time ones, but actually took "
+            f"<b>{late['total_delivery_days'].mean():.1f}</b> vs <b>{ontime['total_delivery_days'].mean():.1f}</b> days. "
+            "The estimate does not adapt to the risk of a route.",
+        )
+        if len(cross) == 2:
+            callout(
+                "Crossing a state border raises the risk",
+                f"Late rate is <b>{pct(cross.get(1))}</b> for cross-state orders and "
+                f"<b>{pct(cross.get(0))}</b> within a state.",
             )
-        with c_w:
-            ts_window = st.segmented_control("Smoothing Window", ["7d", "14d", "30d"], default="14d") or "14d"
 
-        w_num = int(ts_window.replace("d", ""))
-        ts_plot = ts.copy()
-        if ts_metric == "late_rate":
-            ts_plot["raw_val"] = ts_plot["late_rate"] * 100
-        else:
-            ts_plot["raw_val"] = ts_plot[ts_metric]
-
-        # Use precomputed columns for raw_orders; compute dynamically for other metrics so scales match!
-        if ts_metric == "raw_orders":
-            ts_plot["sma"] = ts_plot[f"sma_{ts_window}"]
-            ts_plot["ewma"] = ts_plot[f"ewma_{ts_window}"]
-            ts_plot["med"] = ts_plot[f"median_{ts_window}"]
-        else:
-            ts_plot["sma"] = ts_plot["raw_val"].rolling(window=w_num, min_periods=1).mean()
-            ts_plot["ewma"] = ts_plot["raw_val"].ewm(span=w_num, adjust=False).mean()
-            ts_plot["med"] = ts_plot["raw_val"].rolling(window=w_num, min_periods=1).median()
-
-        fig_ts = go.Figure()
-        fig_ts.add_trace(go.Scatter(
-            x=ts_plot["purchase_date"], y=ts_plot["raw_val"],
-            mode="lines", name="Raw Daily",
-            line=dict(color="rgba(148, 163, 184, 0.32)", width=1),
-            fill="tozeroy", fillcolor="rgba(56, 189, 248, 0.04)",
-        ))
-        fig_ts.add_trace(go.Scatter(
-            x=ts_plot["purchase_date"], y=ts_plot["sma"],
-            mode="lines", name=f"SMA ({ts_window})",
-            line=dict(color=CYAN, width=2.2),
-        ))
-        fig_ts.add_trace(go.Scatter(
-            x=ts_plot["purchase_date"], y=ts_plot["ewma"],
-            mode="lines", name=f"EWMA ({ts_window})",
-            line=dict(color=GREEN, width=2.2),
-        ))
-        fig_ts.add_trace(go.Scatter(
-            x=ts_plot["purchase_date"], y=ts_plot["med"],
-            mode="lines", name=f"Rolling Median ({ts_window})",
-            line=dict(color=AMBER, width=2, dash="dash"),
-        ))
-
-        bf_date = pd.Timestamp("2017-11-24")
-        fig_ts.add_shape(
-            type="line", x0=bf_date, x1=bf_date, y0=0, y1=1, xref="x", yref="paper",
-            line=dict(color=AMBER, width=1.5, dash="dot"),
-        )
-        fig_ts.add_annotation(
-            x=bf_date, y=1.0, xref="x", yref="paper",
-            text="Black Friday (Nov 24, 2017)",
-            showarrow=False, font=dict(color=AMBER, size=11), yshift=10, xanchor="left",
-        )
-        style_fig(
-            fig_ts,
-            title=f"{metric_labels[ts_metric]} — Raw vs {ts_window} Smoothed Filters",
-            height=420,
-            yaxis_title=metric_labels[ts_metric],
-            legend=dict(orientation="h", y=1.1, x=0.01),
-            hovermode="x unified",
-        )
-        st.plotly_chart(fig_ts, width="stretch")
-
-    with st.container(border=True):
-        monthly = (
-            filt.groupby([
-                filt["purchase_date"].dt.year.rename("year"),
-                filt["purchase_date"].dt.month.rename("month"),
-            ])
-            .agg(
-                order_count=("order_id", "count"),
-                revenue=("total_price", "sum"),
-                late_pct=("is_late", "mean"),
+    left, right = st.columns(2)
+    with left:
+        header("Average review by delivery outcome", "The rating drops sharply after the promised date.")
+        g = filt.dropna(subset=["lateness_bucket", "review_score"]).groupby("lateness_bucket")["review_score"].mean()
+        g = g.reindex(present_buckets)
+        fig = go.Figure(
+            go.Bar(
+                x=[BUCKET_SHORT[b] for b in g.index], y=g.values,
+                marker_color=[BUCKET_COLORS[b] for b in g.index],
+                text=[f"{v:.2f}" for v in g.values], textposition="outside", cliponaxis=False,
             )
+        )
+        style(fig, 340, yaxis=dict(range=[0, 5.3], title="Average stars"))
+        show(fig)
+    with right:
+        header("Orders and late rate by month", "Volume grew fast through 2017; late rate spiked around peak season.")
+        m = (
+            filt.dropna(subset=["purchase_date"])
+            .assign(month=lambda d: d["purchase_date"].dt.to_period("M").dt.to_timestamp())
+            .groupby("month")
+            .agg(orders=("order_id", "count"), late=("is_late", "mean"))
             .reset_index()
         )
-        monthly["late_pct"] = monthly["late_pct"] * 100
+        m = m[m["orders"] >= 50]
+        fig = go.Figure()
+        fig.add_bar(x=m["month"], y=m["orders"], name="Orders", marker_color="#c9d6e2")
+        fig.add_scatter(x=m["month"], y=m["late"] * 100, name="Late rate (%)", yaxis="y2",
+                        line=dict(color=RED, width=2.5), mode="lines+markers")
+        style(fig, 340, legend=True,
+              yaxis=dict(title="Orders per month"),
+              yaxis2=dict(title="Late rate (%)", overlaying="y", side="right", showgrid=False, rangemode="tozero"))
+        show(fig)
 
-        heatmap_metric = st.segmented_control(
-            "Monthly Calendar Heatmap Metric",
-            options=["order_count", "revenue", "late_pct"],
-            default="order_count",
-            format_func=lambda x: {"order_count": "Orders", "revenue": "Revenue (R$)", "late_pct": "Late Rate (%)"}[x],
-        ) or "order_count"
+    st.markdown("## Where each technique is used")
+    table(pd.DataFrame([
+        ["Data processing", "Joins without row multiplication, geo cleaning, derived delivery stages, smoothing", "1, 2"],
+        ["Statistics of data", "Descriptives, skewness, hypothesis tests, effect sizes, correlation", "3"],
+        ["Transformations", "Log, square root, Box-Cox, Yeo-Johnson, scaling, encodings", "3"],
+        ["Outliers and missing values", "IQR vs Z-score, winsorizing, MNAR comments, imputation experiment", "4"],
+        ["Text mining", "Portuguese TF-IDF that keeps negations", "5"],
+        ["Graph analysis", "State shipping network, PageRank, betweenness, route risk", "6"],
+        ["Association rules", "FP-Growth / Apriori on order risk profiles and category baskets", "7"],
+        ["Dimensionality reduction", "PCA, t-SNE, autoencoder", "8"],
+        ["Clustering", "K-Means, Ward, DBSCAN, Mean-Shift, OPTICS, seller tiers", "8"],
+    ], columns=["Topic", "What we did", "Section"]))
 
-        if len(monthly):
-            pivot = monthly.pivot(index="year", columns="month", values=heatmap_metric).fillna(0)
-            month_names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-            pivot.columns = [month_names[m - 1] for m in pivot.columns]
 
-            if heatmap_metric == "late_pct":
-                cscale, txt_fmt = [[0, "#0f2922"], [0.4, "#22c55e"], [0.7, "#f59e0b"], [1, "#f43f5e"]], ".1f"
-            elif heatmap_metric == "revenue":
-                cscale, txt_fmt = [[0, "#0f172a"], [0.5, "#0ea5e9"], [1, "#2dd4bf"]], ".0f"
-            else:
-                cscale, txt_fmt = [[0, "#0f172a"], [0.5, "#0284c7"], [1, "#38bdf8"]], ".0f"
-
-            fig_heat = px.imshow(
-                pivot.values,
-                x=pivot.columns.tolist(),
-                y=[str(y) for y in pivot.index.tolist()],
-                color_continuous_scale=cscale,
-                text_auto=txt_fmt,
-                aspect="auto",
-                labels=dict(x="Month", y="Year", color=heatmap_metric),
-            )
-            style_fig(
-                fig_heat,
-                title=f"Monthly { {'order_count':'Orders','revenue':'Revenue (R$)','late_pct':'Late Rate (%)'}[heatmap_metric] } Heatmap",
-                height=260,
-            )
-            st.plotly_chart(fig_heat, width="stretch")
-
-    insight_box(
-        "Key Finding — Demand Surges Trigger Subsequent Delay Waves",
-        "Daily volume scales rapidly through 2017 into early 2018 with a sharp spike on <b>Black Friday (Nov 24, 2017)</b>. "
-        "Notice how a 14–30 day Rolling Median smooths weekly dips without getting dragged upward by single-day promo spikes, and how late rates climb right after peak seasonal surges when carrier capacity saturates.",
-        accent=CYAN,
+# ===========================================================================
+# 1. DATA PROCESSING
+# ===========================================================================
+def page_processing():
+    page_intro(
+        "1. Data processing",
+        "Notebook 01 - cleaning, master tables, time-series smoothing",
+        "Nine raw CSV files were cleaned, joined into one row per order and one row per seller, and enriched "
+        "with delivery stage durations and customer-to-seller distance.",
     )
 
-# ══════════════════════════════════════════════════════════════
-# TAB 3 — GEOGRAPHIC INTELLIGENCE
-# ══════════════════════════════════════════════════════════════
-with tabs[2]:
-    section_banner(
-        "Lecture 10 • Shipping Network Graph & Route Risk",
-        "Shipping Corridors, Hub States & Geographic Delay Patterns",
-        "27-state directed shipping network (`Seller State → Customer State`) combined with Haversine distance and intra-state vs. cross-state breakdowns.",
-    )
+    st.markdown("## The raw tables")
+    table(pd.DataFrame({
+        "Table": ["orders", "order_items", "order_payments", "order_reviews", "customers", "sellers", "products", "geolocation", "category_translation"],
+        "Rows": [99441, 112650, 103886, 99224, 99441, 3095, 32951, 1000163, 71],
+        "Columns": [8, 7, 5, 7, 5, 4, 9, 5, 2],
+        "Exact duplicate rows": [0, 0, 0, 0, 0, 0, 0, 261831, 0],
+        "Missing cells": [4908, 0, 0, 145903, 0, 0, 2448, 0, 0],
+    }).style.format({"Rows": "{:,}", "Exact duplicate rows": "{:,}", "Missing cells": "{:,}"}))
+    st.caption("Numbers are from the notebook's profiling step (full raw data, not affected by the sidebar filters).")
 
-    col_g1, col_g2 = st.columns(2, gap="medium")
-
-    with col_g1:
-        with st.container(border=True):
-            state_agg = (
-                filt.groupby("customer_state")
-                .agg(orders=("order_id", "count"), late_pct=("is_late", "mean"), avg_review=("review_score", "mean"))
-                .reset_index()
-                .sort_values("orders", ascending=False)
-                .head(15)
-            )
-            fig_state = make_subplots(specs=[[{"secondary_y": True}]])
-            fig_state.add_trace(
-                go.Bar(
-                    x=state_agg["customer_state"], y=state_agg["orders"],
-                    name="Orders", marker_color=CYAN, opacity=0.82,
-                ),
-                secondary_y=False,
-            )
-            fig_state.add_trace(
-                go.Scatter(
-                    x=state_agg["customer_state"], y=(state_agg["late_pct"] * 100).round(1),
-                    name="Late Rate %", mode="lines+markers",
-                    line=dict(color=RED, width=2.4), marker=dict(size=7, color=RED),
-                ),
-                secondary_y=True,
-            )
-            style_fig(
-                fig_state,
-                title="Top 15 Destination States: Volume vs Late %",
-                height=380,
-                legend=dict(orientation="h", y=1.12, x=0.01),
-            )
-            fig_state.update_yaxes(title_text="Order Count", secondary_y=False, gridcolor="rgba(148,163,184,0.08)")
-            fig_state.update_yaxes(title_text="Late Rate (%)", secondary_y=True, showgrid=False)
-            st.plotly_chart(fig_state, width="stretch")
-
-    with col_g2:
-        with st.container(border=True):
-            dist_df = filt.dropna(subset=["distance_km", "total_delivery_days", "review_score"])
-            if len(dist_df):
-                sample = dist_df.sample(n=min(3000, len(dist_df)), random_state=42)
-                fig_dist = px.scatter(
-                    sample,
-                    x="distance_km",
-                    y="total_delivery_days",
-                    color="review_score",
-                    color_continuous_scale=[[0, RED], [0.5, AMBER], [1, GREEN]],
-                    opacity=0.55,
-                    labels={"distance_km": "Distance (km)", "total_delivery_days": "Delivery Days", "review_score": "Stars"},
-                )
-                style_fig(fig_dist, title="Shipping Distance vs Actual Delivery Days", height=380)
-                st.plotly_chart(fig_dist, width="stretch")
-
-    col_g3, col_g4 = st.columns([3, 2], gap="medium")
-
-    with col_g3:
-        with st.container(border=True):
-            st.markdown("**Worst Shipping Routes (`Seller State → Customer State`)**")
-            rc1, rc2 = st.columns([1, 2])
-            with rc1:
-                min_orders = st.slider("Min orders/route", 20, 500, 100, step=20)
-            with rc2:
-                sort_metric = st.segmented_control(
-                    "Rank worst by",
-                    options=["late_rate", "avg_days_late", "avg_review"],
-                    default="late_rate",
-                    format_func=lambda x: {"late_rate": "Highest Late %", "avg_days_late": "Avg Days Late", "avg_review": "Lowest Review"}[x],
-                ) or "late_rate"
-
-            routes_filt = routes[routes["order_count"] >= min_orders].copy()
-            # Ascending only when sorting by lowest avg_review; descending for highest late_rate / avg_days_late
-            sort_asc = sort_metric == "avg_review"
-            worst = routes_filt.sort_values(sort_metric, ascending=sort_asc).head(15).copy()
-
-            if len(worst):
-                worst["route"] = worst["seller_state"] + " → " + worst["customer_state"]
-                worst["late_pct_disp"] = worst["late_rate"] * 100
-                x_col = "late_pct_disp" if sort_metric == "late_rate" else sort_metric
-                x_title = "Late Rate (%)" if sort_metric == "late_rate" else sort_metric.replace("_", " ").title()
-                txt_vals = worst[x_col].round(1).astype(str) + ("%" if sort_metric == "late_rate" else "")
-
-                fig_worst = px.bar(
-                    worst,
-                    x=x_col,
-                    y="route",
-                    orientation="h",
-                    color=x_col,
-                    color_continuous_scale="RdYlGn" if sort_metric == "avg_review" else "RdYlGn_r",
-                    text=txt_vals,
-                    custom_data=["order_count", "avg_review", "late_pct_disp"],
-                )
-                fig_worst.update_traces(
-                    textposition="outside",
-                    cliponaxis=False,
-                    hovertemplate="<b>%{y}</b><br>Orders: %{customdata[0]:,}<br>Late Rate: %{customdata[2]:.1f}%<br>Avg Review: %{customdata[1]:.2f} ★<extra></extra>",
-                )
-                style_fig(
-                    fig_worst,
-                    title=f"Top 15 Worst Routes ({len(routes_filt)} routes with ≥{min_orders} orders)",
-                    height=440,
-                    xaxis_title=x_title,
-                    yaxis_title="",
-                    yaxis=dict(autorange="reversed", showgrid=False),
-                    coloraxis_showscale=False,
-                    margin=dict(l=20, r=60, t=50, b=36),
-                )
-                st.plotly_chart(fig_worst, width="stretch")
-            else:
-                st.info("No routes meet the minimum order count threshold.")
-
-    with col_g4:
-        with st.container(border=True):
-            st.markdown("**State Network Centrality vs Destination Risk**")
-            sm_plot = state_metrics.copy()
-            sm_plot["dest_late_pct"] = sm_plot["dest_late_rate"] * 100
-            sm_plot["total_flow"] = sm_plot["in_strength"] + sm_plot["out_strength"]
-            fig_net = px.scatter(
-                sm_plot,
-                x="pagerank",
-                y="dest_late_pct",
-                size="total_flow",
-                color="dest_avg_review",
-                text="state",
-                color_continuous_scale=[[0, RED], [0.5, AMBER], [1, GREEN]],
-                labels={
-                    "pagerank": "Graph PageRank (Hub Centrality)",
-                    "dest_late_pct": "Inbound Late Rate (%)",
-                    "dest_avg_review": "Avg Review",
-                },
-                size_max=40,
-            )
-            fig_net.update_traces(textposition="top center", textfont=dict(size=10, color="#e2e8f0"))
-            style_fig(
-                fig_net,
-                title="27-State Network: PageRank Hub vs Delay Risk",
-                height=340,
-                margin=dict(l=20, r=20, t=48, b=32),
-            )
-            st.plotly_chart(fig_net, width="stretch")
-
-            # Same-state vs Cross-state comparison table/cards
-            cross = (
-                filt.groupby("is_cross_state")
-                .agg(
-                    orders=("order_id", "count"),
-                    avg_delivery=("total_delivery_days", "mean"),
-                    late_pct=("is_late", "mean"),
-                    avg_review=("review_score", "mean"),
-                )
-                .reset_index()
-            )
-            cross["Route Type"] = cross["is_cross_state"].map({0: "Same State", 1: "Cross State"})
-            cross["Late %"] = (cross["late_pct"] * 100).round(1).astype(str) + "%"
-            cross["Delivery (d)"] = cross["avg_delivery"].round(1)
-            cross["Avg Review"] = cross["avg_review"].round(2)
-            st.dataframe(
-                cross[["Route Type", "orders", "Delivery (d)", "Late %", "Avg Review"]].rename(columns={"orders": "Orders"}),
-                width="stretch",
-                hide_index=True,
-            )
-
-    insight_box(
-        "Key Finding — São Paulo Hub Dominance & Northeast/North Bottlenecks",
-        "<b>SP</b> is the network's overwhelming shipping origin (highest PageRank and ~61% of inter-state outbound flow). "
-        "While intra-state orders keep late rates low (~6.1%), long-haul corridors from SP to Northern/Northeastern states like <b>AL (26.3% late)</b> and <b>MA (21.2% late)</b> suffer severe delays—and high-volume corridors like <b>SP → RJ (15.5% late)</b> drive huge absolute complaint counts.",
-        accent=ORANGE,
-    )
-
-# ══════════════════════════════════════════════════════════════
-# TAB 4 — DATA QUALITY (OUTLIERS & IMPUTATION)
-# ══════════════════════════════════════════════════════════════
-with tabs[3]:
-    section_banner(
-        "Lectures 6, 7 & 8 • Data Quality, Sensitivity & Imputation",
-        "Outlier Detection, Distributional Sensitivity & Missing-Value Experiments",
-        "Compares IQR vs Z-score flagging, measures Winsorization & Log1p stabilization, and evaluates Mean, Median, kNN, and MICE imputation.",
-    )
-
-    subtab1, subtab2, subtab3 = st.tabs([
-        "🎯 Outlier Detection",
-        "⚖️ Sensitivity & Transforms",
-        "🧪 Missing Data & Imputation",
-    ])
-
-    with subtab1:
-        with st.container(border=True):
-            col_o1, col_o2, col_o3 = st.columns([2, 1, 1])
-            var_labels = {
-                "total_price": "Total Price (R$)",
-                "total_freight": "Total Freight Value (R$)",
-                "total_weight_g": "Product Weight (grams)",
-                "total_delivery_days": "Delivery Time (days)",
-                "days_late": "Days Late (days)",
-                "distance_km": "Customer-Seller Distance (km)",
-                "approval_hours": "Approval Time (hours)",
-            }
-            with col_o1:
-                outlier_var = st.selectbox(
-                    "Select Variable to Analyze",
-                    list(var_labels.keys()),
-                    format_func=lambda x: var_labels.get(x, x),
-                    key="outlier_var_select",
-                )
-            with col_o2:
-                iqr_mult = st.slider("IQR Multiplier (k)", 1.0, 3.0, 1.5, 0.25, key="iqr_mult_slider")
-            with col_o3:
-                z_thresh = st.slider("Z-Score Cutoff (|z|)", 2.0, 4.0, 3.0, 0.25, key="z_thresh_slider")
-
-            series = filt[outlier_var].dropna()
-            if len(series) > 0:
-                q1, q3 = float(series.quantile(0.25)), float(series.quantile(0.75))
-                iqr_val = q3 - q1
-                iqr_lower, iqr_upper = q1 - iqr_mult * iqr_val, q3 + iqr_mult * iqr_val
-                iqr_mask = (series < iqr_lower) | (series > iqr_upper)
-
-                mean_val = float(series.mean())
-                std_val = float(series.std()) if float(series.std()) > 0 else 1.0
-                z_mask = ((series - mean_val) / std_val).abs() > z_thresh
-                overlap_count = int((iqr_mask & z_mask).sum())
-
-                mo1, mo2, mo3, mo4 = st.columns(4)
-                mo1.metric("Filtered Sample Size", f"{len(series):,}")
-                mo2.metric(f"IQR Outliers (k={iqr_mult})", f"{int(iqr_mask.sum()):,} ({iqr_mask.mean()*100:.1f}%)")
-                mo3.metric(f"Z-Score Outliers (|z|>{z_thresh})", f"{int(z_mask.sum()):,} ({z_mask.mean()*100:.1f}%)")
-                mo4.metric("Agreement (Overlap)", f"{overlap_count:,} ({overlap_count/len(series)*100:.1f}%)")
-
-                vh1, vh2 = st.columns(2)
-                plot_sample = series.sample(min(5000, len(series)), random_state=42)
-                with vh1:
-                    fig_hist = go.Figure()
-                    fig_hist.add_trace(go.Histogram(x=plot_sample, nbinsx=50, marker_color=CYAN, opacity=0.78, name="Distribution"))
-                    fig_hist.add_vline(x=iqr_upper, line_dash="dash", line_color=RED)
-                    fig_hist.add_annotation(x=iqr_upper, y=1.0, yref="paper", text=f"IQR Upper ({iqr_upper:.1f})", showarrow=False, font=dict(color=RED, size=10), yshift=10)
-                    z_upper = mean_val + z_thresh * std_val
-                    fig_hist.add_vline(x=z_upper, line_dash="dot", line_color=AMBER)
-                    fig_hist.add_annotation(x=z_upper, y=0.86, yref="paper", text=f"Z-Cutoff ({z_upper:.1f})", showarrow=False, font=dict(color=AMBER, size=10))
-                    style_fig(fig_hist, title=f"Distribution & Fences: {var_labels[outlier_var]}", height=330, xaxis_title=var_labels[outlier_var], yaxis_title="Count")
-                    st.plotly_chart(fig_hist, width="stretch")
-
-                with vh2:
-                    fig_box = go.Figure(go.Box(
-                        y=plot_sample,
-                        name=var_labels[outlier_var],
-                        boxpoints="outliers",
-                        marker=dict(color=ORANGE, size=4, opacity=0.6),
-                        line_color=TEAL,
-                    ))
-                    style_fig(fig_box, title="Box Plot (Whiskers vs Flagged Points)", height=330)
-                    st.plotly_chart(fig_box, width="stretch")
-
-        with st.container(border=True):
-            st.markdown("**Full-Dataset Outlier Benchmark (Notebook 03)**")
-            outlier_summary_data = pd.DataFrame([
-                {"Feature": "Total Price (R$)", "IQR Count": 7913, "IQR %": "8.02%", "Z-Score Count": 1709, "Z-Score %": "1.73%", "Interpretation": "Z-score flags only extreme luxury purchases"},
-                {"Feature": "Total Freight Value (R$)", "IQR Count": 9941, "IQR %": "10.08%", "Z-Score Count": 1581, "Z-Score %": "1.60%", "Interpretation": "Cross-state heavy / Amazonian routes"},
-                {"Feature": "Product Weight (grams)", "IQR Count": 13804, "IQR %": "13.99%", "Z-Score Count": 1962, "Z-Score %": "1.99%", "Interpretation": "Furniture & appliances create heavy right skew"},
-                {"Feature": "Total Delivery Days", "IQR Count": 4899, "IQR %": "5.08%", "Z-Score Count": 1571, "Z-Score %": "1.63%", "Interpretation": "Severe carrier disruptions / strikes"},
-                {"Feature": "Days Late", "IQR Count": 4875, "IQR %": "5.05%", "Z-Score Count": 1333, "Z-Score %": "1.38%", "Interpretation": "Orders delayed >2–3 weeks"},
-                {"Feature": "Distance (km)", "IQR Count": 7622, "IQR %": "7.76%", "Z-Score Count": 1564, "Z-Score %": "1.59%", "Interpretation": "Transcontinental shipments (~3,500+ km)"},
-            ])
-            st.dataframe(outlier_summary_data, width="stretch", hide_index=True)
-
-    with subtab2:
-        sens_df = pd.DataFrame([
-            {"Variable": "Total Price (R$)", "Treatment": "Original", "Count": 98666, "Mean": 137.75, "Median": 86.90, "Std Dev": 210.65, "Skewness": 9.73},
-            {"Variable": "Total Price (R$)", "Treatment": "Winsorized (1-99%)", "Count": 98666, "Mean": 131.82, "Median": 86.90, "Std Dev": 155.95, "Skewness": 3.28},
-            {"Variable": "Total Price (R$)", "Treatment": "Log Transformed (log1p)", "Count": 98666, "Mean": 4.46, "Median": 4.48, "Std Dev": 0.92, "Skewness": 0.29},
-            {"Variable": "Total Price (R$)", "Treatment": "IQR Truncated", "Count": 90753, "Mean": 94.44, "Median": 79.00, "Std Dev": 66.06, "Skewness": 1.03},
-            {"Variable": "Total Freight Value (R$)", "Treatment": "Original", "Count": 98666, "Mean": 22.82, "Median": 17.17, "Std Dev": 21.65, "Skewness": 12.05},
-            {"Variable": "Total Freight Value (R$)", "Treatment": "Winsorized (1-99%)", "Count": 98666, "Mean": 22.28, "Median": 17.17, "Std Dev": 16.31, "Skewness": 2.75},
-            {"Variable": "Total Freight Value (R$)", "Treatment": "Log Transformed (log1p)", "Count": 98666, "Mean": 2.99, "Median": 2.90, "Std Dev": 0.56, "Skewness": 0.47},
-            {"Variable": "Total Freight Value (R$)", "Treatment": "IQR Truncated", "Count": 88725, "Mean": 17.79, "Median": 16.34, "Std Dev": 7.16, "Skewness": 0.92},
-            {"Variable": "Total Delivery Days", "Treatment": "Original", "Count": 96476, "Mean": 12.56, "Median": 10.22, "Std Dev": 9.55, "Skewness": 3.83},
-            {"Variable": "Total Delivery Days", "Treatment": "Winsorized (1-99%)", "Count": 96476, "Mean": 12.40, "Median": 10.22, "Std Dev": 8.41, "Skewness": 1.62},
-            {"Variable": "Total Delivery Days", "Treatment": "Log Transformed (log1p)", "Count": 96476, "Mean": 2.42, "Median": 2.42, "Std Dev": 0.60, "Skewness": 0.04},
-            {"Variable": "Total Delivery Days", "Treatment": "IQR Truncated", "Count": 91577, "Mean": 11.05, "Median": 9.91, "Std Dev": 6.09, "Skewness": 0.77},
-            {"Variable": "Distance (km)", "Treatment": "Original", "Count": 98174, "Mean": 601.29, "Median": 433.74, "Std Dev": 593.90, "Skewness": 1.65},
-            {"Variable": "Distance (km)", "Treatment": "Winsorized (1-99%)", "Count": 98174, "Mean": 598.81, "Median": 433.74, "Std Dev": 584.94, "Skewness": 1.58},
-            {"Variable": "Distance (km)", "Treatment": "Log Transformed (log1p)", "Count": 98174, "Mean": 5.78, "Median": 6.07, "Std Dev": 1.37, "Skewness": -1.04},
-            {"Variable": "Distance (km)", "Treatment": "IQR Truncated", "Count": 90552, "Mean": 466.01, "Median": 392.48, "Std Dev": 373.89, "Skewness": 0.96},
-        ])
-
-        with st.container(border=True):
-            sel_sens_var = st.selectbox("Filter Variable for Treatment Comparison", sens_df["Variable"].unique(), index=0)
-            sub_sens = sens_df[sens_df["Variable"] == sel_sens_var]
-
-            col_st1, col_st2 = st.columns([3, 2])
-            with col_st1:
-                st.dataframe(
-                    sub_sens.style.background_gradient(subset=["Skewness"], cmap="RdYlGn_r").format(
-                        {"Mean": "{:.2f}", "Median": "{:.2f}", "Std Dev": "{:.2f}", "Skewness": "{:.2f}"}
-                    ),
-                    width="stretch",
-                    hide_index=True,
-                )
-            with col_st2:
-                fig_skew = px.bar(
-                    sub_sens,
-                    x="Treatment", y="Skewness",
-                    color="Treatment",
-                    color_discrete_sequence=[RED, AMBER, GREEN, CYAN],
-                    text=sub_sens["Skewness"].round(2),
-                )
-                fig_skew.update_traces(textposition="outside", cliponaxis=False)
-                style_fig(fig_skew, title=f"Skewness Under Treatments: {sel_sens_var}", height=280, showlegend=False)
-                st.plotly_chart(fig_skew, width="stretch")
-
-        with st.container(border=True):
-            pos_prices = filt[filt["total_price"] > 0]["total_price"].dropna()
-            if len(pos_prices):
-                sample_sens = pos_prices.sample(min(3000, len(pos_prices)), random_state=42)
-                p1, p99 = sample_sens.quantile(0.01), sample_sens.quantile(0.99)
-                fig_treat = make_subplots(
-                    rows=1, cols=3,
-                    subplot_titles=["Raw Distribution", "Winsorized (1–99%)", "Log1p Transformed"],
-                )
-                fig_treat.add_trace(go.Histogram(x=sample_sens, nbinsx=40, marker_color=RED, opacity=0.8), row=1, col=1)
-                fig_treat.add_trace(go.Histogram(x=sample_sens.clip(p1, p99), nbinsx=40, marker_color=AMBER, opacity=0.8), row=1, col=2)
-                fig_treat.add_trace(go.Histogram(x=np.log1p(sample_sens), nbinsx=40, marker_color=GREEN, opacity=0.8), row=1, col=3)
-                style_fig(fig_treat, title="Live Filtered Price Distribution Under Treatments", height=310, showlegend=False)
-                st.plotly_chart(fig_treat, width="stretch")
-
-    with subtab3:
-        col_m1, col_m2 = st.columns(2, gap="medium")
-        with col_m1:
-            with st.container(border=True):
-                comm_by_score = filt.dropna(subset=["review_score"]).groupby("review_score")["has_comment"].mean().reset_index()
-                if len(comm_by_score):
-                    comm_by_score["Stars"] = comm_by_score["review_score"].astype(int).astype(str) + " ★"
-                    comm_by_score["comment_rate"] = (comm_by_score["has_comment"] * 100).round(1)
-                    fig_comm_score = px.bar(
-                        comm_by_score, x="Stars", y="comment_rate",
-                        color="comment_rate", color_continuous_scale=[[0, CYAN], [0.5, AMBER], [1, RED]],
-                        text="comment_rate",
-                    )
-                    fig_comm_score.update_traces(texttemplate="%{text:.1f}%", textposition="outside", cliponaxis=False)
-                    style_fig(fig_comm_score, title="Comment Rate by Star Rating (MNAR Bias)", height=340, yaxis_range=[0, 95], yaxis_title="% With Written Comment", coloraxis_showscale=False)
-                    st.plotly_chart(fig_comm_score, width="stretch")
-
-        with col_m2:
-            with st.container(border=True):
-                comm_by_late = filt.groupby("lateness_bucket")["has_comment"].mean().reindex(BUCKET_ORDER).dropna().reset_index()
-                if len(comm_by_late):
-                    comm_by_late["comment_rate"] = (comm_by_late["has_comment"] * 100).round(1)
-                    fig_comm_late = px.bar(
-                        comm_by_late, x="lateness_bucket", y="comment_rate",
-                        color="comment_rate", color_continuous_scale=[[0, CYAN], [0.5, AMBER], [1, RED]],
-                        text="comment_rate",
-                    )
-                    fig_comm_late.update_traces(texttemplate="%{text:.1f}%", textposition="outside", cliponaxis=False)
-                    style_fig(fig_comm_late, title="Comment Rate by Delivery Lateness", height=340, yaxis_range=[0, 85], yaxis_title="% With Written Comment", xaxis_title="", coloraxis_showscale=False)
-                    st.plotly_chart(fig_comm_late, width="stretch")
-
-        with st.container(border=True):
-            imputation_results = pd.DataFrame([
-                {"Feature": "Product Weight (g)", "Method": "Mean", "MAE": 2550.90, "RMSE": 4368.12},
-                {"Feature": "Product Weight (g)", "Method": "Median", "MAE": 1964.98, "RMSE": 4649.87},
-                {"Feature": "Product Weight (g)", "Method": "kNN (k=5)", "MAE": 2130.60, "RMSE": 3944.67},
-                {"Feature": "Product Weight (g)", "Method": "MICE (Iterative)", "MAE": 2300.23, "RMSE": 3523.95},
-                {"Feature": "Product Length (cm)", "Method": "Mean", "MAE": 12.65, "RMSE": 16.77},
-                {"Feature": "Product Length (cm)", "Method": "Median", "MAE": 11.92, "RMSE": 17.74},
-                {"Feature": "Product Length (cm)", "Method": "kNN (k=5)", "MAE": 11.02, "RMSE": 15.91},
-                {"Feature": "Product Length (cm)", "Method": "MICE (Iterative)", "MAE": 10.68, "RMSE": 15.06},
-                {"Feature": "Product Height (cm)", "Method": "Mean", "MAE": 9.68, "RMSE": 13.89},
-                {"Feature": "Product Height (cm)", "Method": "Median", "MAE": 9.29, "RMSE": 14.52},
-                {"Feature": "Product Height (cm)", "Method": "kNN (k=5)", "MAE": 9.51, "RMSE": 13.77},
-                {"Feature": "Product Height (cm)", "Method": "MICE (Iterative)", "MAE": 9.25, "RMSE": 12.76},
-                {"Feature": "Product Width (cm)", "Method": "Mean", "MAE": 9.40, "RMSE": 12.04},
-                {"Feature": "Product Width (cm)", "Method": "Median", "MAE": 8.77, "RMSE": 12.45},
-                {"Feature": "Product Width (cm)", "Method": "kNN (k=5)", "MAE": 7.43, "RMSE": 10.71},
-                {"Feature": "Product Width (cm)", "Method": "MICE (Iterative)", "MAE": 7.75, "RMSE": 10.62},
-            ])
-            c_is, c_im = st.columns([2, 1])
-            with c_is:
-                sel_imp_feat = st.selectbox("Masked Feature (15% Masking Experiment, n=4,942)", imputation_results["Feature"].unique(), index=0)
-            with c_im:
-                sel_imp_metric = st.segmented_control("Error Metric", ["RMSE", "MAE"], default="RMSE") or "RMSE"
-
-            sub_imp = imputation_results[imputation_results["Feature"] == sel_imp_feat]
-            fig_imp = px.bar(
-                sub_imp, x="Method", y=sel_imp_metric, color="Method",
-                color_discrete_sequence=[CYAN, AMBER, INDIGO, GREEN],
-                text=sub_imp[sel_imp_metric].round(2),
-            )
-            fig_imp.update_traces(textposition="outside", cliponaxis=False)
-            style_fig(fig_imp, title=f"Imputation Error ({sel_imp_metric}) — {sel_imp_feat}", height=320, showlegend=False)
-            st.plotly_chart(fig_imp, width="stretch")
-
-    insight_box(
-        "Key Findings — Skewness Control, Non-Random Missingness & MICE Advantage",
-        "1. <b>Log1p stabilization</b> cuts price skewness from 9.73 → 0.29 and freight skewness from 12.05 → 0.47 without dropping valid extreme orders.<br>"
-        "2. <b>Missing comments are informative (MNAR):</b> ~77.6% of 1★ reviewers leave text vs. ~35.9% of 5★ reviewers, and &gt;7-day late orders leave comments ~65.4% of the time.<br>"
-        "3. <b>MICE wins on correlated dimensions</b> (lowest RMSE across weight, length, height, and width in the 15% masking test), while Median gets lowest MAE on heavily skewed product weight.",
-        accent=INDIGO,
-    )
-
-# ══════════════════════════════════════════════════════════════
-# TAB 5 — REVIEW & SENTIMENT ANALYSIS (NLP)
-# ══════════════════════════════════════════════════════════════
-with tabs[4]:
-    section_banner(
-        "Research Questions 2 & 4 • Rating Cliff & Portuguese NLP",
-        "How Late Is Too Late — And What Do Customers Complain About?",
-        "Combines delivery-tolerance thresholds (Notebook 02) with negation-preserving Portuguese TF-IDF analysis on 40,556 review texts (Notebook 04).",
-    )
-
-    col_r1, col_r2 = st.columns(2, gap="medium")
-    with col_r1:
-        with st.container(border=True):
-            review_dist = filt["review_score"].dropna().astype(int).value_counts().sort_index()
-            score_cmap = {1: RED, 2: ORANGE, 3: AMBER, 4: CYAN, 5: GREEN}
-            fig_rev = go.Figure(go.Bar(
-                x=[f"{s} ★" for s in review_dist.index],
-                y=review_dist.values,
-                marker=dict(color=[score_cmap.get(s, CYAN) for s in review_dist.index], cornerradius=6),
-                text=[f"{v:,}" for v in review_dist.values],
-                textposition="outside",
-                cliponaxis=False,
-            ))
-            style_fig(fig_rev, title="Review Score Distribution", height=340, xaxis_title="Rating", yaxis_title="Orders", margin=dict(l=20, r=20, t=50, b=36))
-            st.plotly_chart(fig_rev, width="stretch")
-
-    with col_r2:
-        with st.container(border=True):
-            late_review = (
-                filt.dropna(subset=["lateness_bucket", "review_score"])
-                .groupby("lateness_bucket")["review_score"].mean()
-                .reindex(BUCKET_ORDER)
-                .dropna()
-            )
-            fig_lr = go.Figure(go.Bar(
-                x=late_review.index,
-                y=late_review.values,
-                marker=dict(color=[GREEN, CYAN, AMBER, ORANGE, RED], cornerradius=6),
-                text=[f"{v:.2f} ★" for v in late_review.values],
-                textposition="outside",
-                cliponaxis=False,
-            ))
-            style_fig(fig_lr, title="Avg Review Score by Lateness Bucket (The Patience Cliff)", height=340, yaxis_range=[0, 5.4], yaxis_title="Avg Stars")
-            st.plotly_chart(fig_lr, width="stretch")
-
-    with st.container(border=True):
-        nlp_mode = st.segmented_control(
-            "Compare Top TF-IDF Terms By",
-            options=["1-star vs 5-star", "late vs on-time"],
-            default="1-star vs 5-star",
-        ) or "1-star vs 5-star"
-
-        g_left, g_right = ("1-star", "5-star") if nlp_mode == "1-star vs 5-star" else ("late", "on-time")
-        lbl_left = "1★ Complaint Reviews" if g_left == "1-star" else "Late Delivery Reviews"
-        lbl_right = "5★ Praise Reviews" if g_right == "5-star" else "On-Time Delivery Reviews"
-
-        col_n1, col_n2 = st.columns(2, gap="medium")
-        with col_n1:
-            t_left = nlp_top[nlp_top["group"] == g_left].head(15)
-            if len(t_left):
-                fig_tl = go.Figure(go.Bar(
-                    x=t_left["mean_tfidf"], y=t_left["term"], orientation="h",
-                    marker=dict(color=RED, cornerradius=4),
-                    text=t_left["mean_tfidf"].round(4), textposition="outside", cliponaxis=False,
-                ))
-                style_fig(fig_tl, title=f"Top 15 Terms — {lbl_left}", height=410, xaxis_title="Mean TF-IDF", yaxis=dict(autorange="reversed", showgrid=False), margin=dict(l=20, r=60, t=48, b=30))
-                st.plotly_chart(fig_tl, width="stretch")
-
-        with col_n2:
-            t_right = nlp_top[nlp_top["group"] == g_right].head(15)
-            if len(t_right):
-                fig_tr = go.Figure(go.Bar(
-                    x=t_right["mean_tfidf"], y=t_right["term"], orientation="h",
-                    marker=dict(color=GREEN, cornerradius=4),
-                    text=t_right["mean_tfidf"].round(4), textposition="outside", cliponaxis=False,
-                ))
-                style_fig(fig_tr, title=f"Top 15 Terms — {lbl_right}", height=410, xaxis_title="Mean TF-IDF", yaxis=dict(autorange="reversed", showgrid=False), margin=dict(l=20, r=60, t=48, b=30))
-                st.plotly_chart(fig_tr, width="stretch")
-
-    with st.container(border=True):
-        top_n = st.slider("Terms per side (Diverging TF-IDF Difference)", 8, 25, 12)
-        neg_dist = nlp_dist.sort_values("difference", ascending=False).head(top_n)
-        pos_dist = nlp_dist.sort_values("difference", ascending=True).head(top_n)
-        div_df = pd.concat([neg_dist, pos_dist]).sort_values("difference", ascending=True)
-        div_colors = [GREEN if d < 0 else RED for d in div_df["difference"]]
-
-        fig_div = go.Figure(go.Bar(
-            x=div_df["difference"],
-            y=div_df["term"],
-            orientation="h",
-            marker=dict(color=div_colors, cornerradius=4),
-            hovertemplate="<b>%{y}</b><br>1★ − 5★ TF-IDF Diff: %{x:.4f}<extra></extra>",
-        ))
-        fig_div.add_vline(x=0, line_color="#64748b", line_width=1.2)
-        style_fig(
-            fig_div,
-            title="Most Distinctive Terms: Praise-Weighted (← Left) vs Complaint-Weighted (Right →)",
-            height=max(420, top_n * 24),
-            xaxis_title="Mean TF-IDF Difference (1★ minus 5★)",
-            yaxis=dict(showgrid=False),
+    st.markdown("## From raw tables to the master tables")
+    c1, c2 = st.columns([3, 2])
+    with c1:
+        header("Row counts before and after cleaning", "Aggregating child tables first keeps one row per order.")
+        steps = pd.DataFrame({
+            "Step": ["Order items", "Order reviews", "Geolocation"],
+            "Raw rows": [112650, 99224, 1000163],
+            "After cleaning": [98666, 98673, 19010],
+            "How": ["Aggregated to 1 row per order", "De-duplicated per order", "Median lat/lng per zip prefix"],
+        })
+        fig = go.Figure()
+        fig.add_bar(y=steps["Step"], x=steps["Raw rows"], orientation="h", name="Raw", marker_color="#c9d6e2")
+        fig.add_bar(y=steps["Step"], x=steps["After cleaning"], orientation="h", name="After cleaning", marker_color=BLUE)
+        style(fig, 250, legend=True, barmode="group", xaxis=dict(type="log", title="Rows (log scale)"),
+              yaxis=dict(autorange="reversed"))
+        show(fig)
+    with c2:
+        header("What the master table adds")
+        st.markdown(
+            "- `approval_hours`: purchase to payment approval\n"
+            "- `seller_handling_days`: approval to carrier pickup\n"
+            "- `carrier_transit_days`: pickup to customer\n"
+            "- `total_delivery_days`, `days_late` (actual minus estimate)\n"
+            "- `distance_km`: Haversine distance seller to customer\n"
+            "- `lateness_bucket`, `is_late`, `is_cross_state`"
         )
-        st.plotly_chart(fig_div, width="stretch")
+        st.caption("master_orders: 99,441 rows x 59 columns. master_sellers: 3,095 rows x 25 columns.")
 
-    insight_box(
-        "Key Finding — 3-Day Patience Threshold & Negation-Driven Complaints",
-        "Customer ratings drop from <b>4.29★</b> (early/on-time) to <b>3.77★</b> at 1–3 days late, then collapse to <b>2.32★</b> (4–7 days late) and <b>1.73★</b> (&gt;7 days late). "
-        "Preserving Portuguese negation words (<i>não</i>, <i>nunca</i>, <i>sem</i>) reveals that <b>\"não recebi\"</b> (did not receive) and <b>\"não entregue\"</b> (not delivered) are the strongest drivers of 1★ complaints.",
-        accent=RED,
+    st.markdown("## Time-series noise removal")
+    st.write(
+        "Daily order counts swing between weekdays and weekends. We compared a simple moving average, an "
+        "exponentially weighted average and a rolling median to expose the underlying trend."
     )
+    if daily is None:
+        st.info("daily_orders_smoothed.csv was not found.")
+    else:
+        labels = {"raw_orders": "Daily orders", "raw_revenue": "Daily revenue (R$)",
+                  "late_rate": "Daily late rate (%)", "avg_review": "Daily average review"}
+        avail = {k: v for k, v in labels.items() if k in daily.columns}
+        c1, c2 = st.columns([2, 3])
+        metric = c1.selectbox("Metric", list(avail), format_func=lambda k: avail[k])
+        win = c2.radio("Window (days)", [7, 14, 30], index=1, horizontal=True)
+        d = daily[["purchase_date", metric]].copy()
+        d["raw"] = d[metric] * (100 if metric == "late_rate" else 1)
+        d["SMA"] = d["raw"].rolling(win, min_periods=1).mean()
+        d["EWMA"] = d["raw"].ewm(span=win, adjust=False).mean()
+        d["Rolling median"] = d["raw"].rolling(win, min_periods=1).median()
+        fig = go.Figure()
+        fig.add_scatter(x=d["purchase_date"], y=d["raw"], name="Raw daily", line=dict(color="#c4cad0", width=1))
+        for name, col in [("SMA", BLUE), ("EWMA", GREEN), ("Rolling median", ORANGE)]:
+            fig.add_scatter(x=d["purchase_date"], y=d[name], name=f"{name} ({win}d)", line=dict(color=col, width=2.4))
+        bf = pd.Timestamp("2017-11-24")
+        fig.add_shape(type="line", x0=bf, x1=bf, y0=0, y1=1, yref="paper", line=dict(color=GREY, dash="dot"))
+        fig.add_annotation(x=bf, y=1.0, yref="paper", text="Black Friday 2017", showarrow=False,
+                           xanchor="left", yanchor="bottom", font=dict(size=11, color=MUTED))
+        style(fig, 380, legend=True, hovermode="x unified", yaxis=dict(title=avail[metric]))
+        show(fig)
 
-# ══════════════════════════════════════════════════════════════
-# TAB 6 — SELLER SEGMENTATION
-# ══════════════════════════════════════════════════════════════
-with tabs[5]:
-    section_banner(
-        "Lectures 13–21 • Dimensionality Reduction & Clustering",
-        "Seller Performance Archetypes & Reliability Scorecard",
-        "3,095 marketplace sellers reduced across 21 operational features and segmented into 4 actionable tiers (Notebook 05).",
+        bfr = daily[daily["purchase_date"] == bf]
+        if len(bfr) and "raw_orders" in daily:
+            s = daily["raw_orders"]
+            raw_v = float(bfr["raw_orders"].iloc[0])
+            idx = bfr.index[0]
+            rows = [["Raw", raw_v]]
+            for w in (7, 14, 30):
+                rows.append([f"{w}-day moving average", float(s.rolling(w, min_periods=1).mean().iloc[idx])])
+            rows.append(["14-day rolling median", float(s.rolling(14, min_periods=1).median().iloc[idx])])
+            tbl = pd.DataFrame(rows, columns=["Filter", "Orders on 24 Nov 2017"])
+            tbl["Orders on 24 Nov 2017"] = tbl["Orders on 24 Nov 2017"].round(0).astype(int)
+            c1, c2 = st.columns([2, 3])
+            with c1:
+                table(tbl)
+            with c2:
+                callout(
+                    "Wider windows flatten real events",
+                    "Black Friday is a genuine spike, not noise. A 30-day average hides most of it, while a 7-day "
+                    "window removes the weekday ripple and still shows the peak. We used 7-14 days for trend and "
+                    "kept the raw series for event analysis.",
+                )
+
+    st.markdown("## When do customers buy? (why time is encoded as sine/cosine)")
+    st.write(
+        "Hour of day, weekday and month are cyclic: 23:00 is next to 00:00 and December is next to January. "
+        "Plain integers break that, so the notebook encodes them as sin and cos pairs."
     )
+    c1, c2 = st.columns([3, 2])
+    dow_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    with c1:
+        header("Orders by weekday and hour")
+        hm = filt.groupby(["purchase_dayofweek", "purchase_hour"]).size().unstack(fill_value=0)
+        hm = hm.reindex(index=range(7), columns=range(24), fill_value=0)
+        fig = go.Figure(go.Heatmap(z=hm.values, x=list(range(24)), y=dow_names, colorscale="Blues",
+                                   colorbar=dict(title="Orders", thickness=12)))
+        style(fig, 320, xaxis=dict(title="Hour of day", dtick=2), yaxis=dict(autorange="reversed", showgrid=False))
+        show(fig)
+    with c2:
+        header("Late rate by purchase weekday")
+        wd = filt.groupby("purchase_dayofweek")["is_late"].mean().reindex(range(7)) * 100
+        fig = go.Figure(go.Bar(x=dow_names, y=wd.values, marker_color=BLUE,
+                               text=[f"{v:.1f}%" for v in wd.values], textposition="outside", cliponaxis=False))
+        style(fig, 320, yaxis=dict(title="Late rate (%)", rangemode="tozero"))
+        show(fig)
 
-    arch_colors = {
-        "Tier 1: Star High-Volume Seller": GREEN,
-        "Tier 2: Premium / High-Ticket Seller": CYAN,
-        "Tier 3: Standard Marketplace Seller": AMBER,
-        "Tier 4: At-Risk / Slow Seller": RED,
-    }
 
-    col_s1, col_s2 = st.columns([2, 3], gap="medium")
-    with col_s1:
-        with st.container(border=True):
-            arch_counts = sellers["seller_archetype"].value_counts()
-            fig_arch = go.Figure(go.Pie(
-                labels=arch_counts.index,
-                values=arch_counts.values,
-                hole=0.56,
-                marker=dict(
-                    colors=[arch_colors.get(a, INDIGO) for a in arch_counts.index],
-                    line=dict(color="#0b0f17", width=2),
-                ),
-                textinfo="percent",
-                textposition="inside",
-                hovertemplate="<b>%{label}</b><br>Sellers: %{value:,} (%{percent})<extra></extra>",
+# ===========================================================================
+# 2. DELIVERY INSIGHTS
+# ===========================================================================
+def page_delivery():
+    page_intro(
+        "2. Delivery insights",
+        "Research questions answered with the cleaned master table",
+        "Where is time lost between purchase and delivery, who is responsible, and would a more honest delivery "
+        "promise help?",
+    )
+    d = filt.dropna(subset=["is_late"])
+    late, ontime = d[d["is_late"] == 1], d[d["is_late"] == 0]
+
+    st.markdown("## Where is time lost?")
+    stage_cols = ["approval_hours", "seller_handling_days", "carrier_transit_days"]
+    s = d.dropna(subset=stage_cols)
+    if len(s):
+        def med(df):
+            return [df["approval_hours"].median() / 24, df["seller_handling_days"].median(), df["carrier_transit_days"].median()]
+        names = ["Payment approval", "Seller handling", "Carrier transit"]
+        mo, ml = med(s[s["is_late"] == 0]), med(s[s["is_late"] == 1])
+        c1, c2 = st.columns([3, 2])
+        with c1:
+            header("Median days per stage: on-time vs late orders")
+            fig = go.Figure()
+            fig.add_bar(x=names, y=mo, name="On time", marker_color=GREEN, text=[f"{v:.1f}" for v in mo], textposition="outside")
+            fig.add_bar(x=names, y=ml, name="Late", marker_color=RED, text=[f"{v:.1f}" for v in ml], textposition="outside")
+            style(fig, 340, legend=True, barmode="group", yaxis=dict(title="Median days"))
+            show(fig)
+        with c2:
+            callout(
+                "Transit is where late orders lose their time",
+                f"Late orders spend a median of <b>{ml[2]:.1f}</b> days with the carrier against "
+                f"<b>{mo[2]:.1f}</b> for on-time orders. Approval takes under a day in both groups and seller "
+                f"handling changes by about <b>{ml[1] - mo[1]:.1f}</b> days, so the gap is almost entirely transit.",
+            )
+
+    st.markdown("## Who is responsible: seller or carrier?")
+    if "seller_shipped_late" in late and late["seller_shipped_late"].notna().any():
+        sl = late["seller_shipped_late"].mean()
+        c1, c2 = st.columns([2, 3])
+        with c1:
+            fig = go.Figure(go.Pie(
+                labels=["Seller shipped after deadline", "Seller shipped on time (carrier / promise)"],
+                values=[sl, 1 - sl], hole=0.55, sort=False,
+                marker=dict(colors=[ORANGE, BLUE], line=dict(color="white", width=2)),
+                textinfo="percent", textfont=dict(size=14),
             ))
-            style_fig(
-                fig_arch,
-                title="Seller Archetype Breakdown (3,095 Sellers)",
-                height=390,
-                showlegend=True,
-                legend=dict(orientation="h", yanchor="top", y=-0.04, xanchor="center", x=0.5, font=dict(size=10.5)),
-                margin=dict(l=16, r=16, t=48, b=72),
+            style(fig, 300, legend=True, legend_orientation="h", legend_y=-0.15, legend_yanchor="top")
+            show(fig)
+        with c2:
+            by_seller = d.groupby("seller_shipped_late")["is_late"].mean()
+            callout(
+                "Attributing lateness",
+                f"Of all late orders, <b>{pct(sl, 0)}</b> involved a seller who missed the dispatch deadline. "
+                f"But sellers who shipped late still delivered late only <b>{pct(by_seller.get(1.0), 0)}</b> of the time, "
+                f"against <b>{pct(by_seller.get(0.0), 0)}</b> when they shipped on time. Dispatch speed matters, but it "
+                "is not the main lever.",
             )
-            st.plotly_chart(fig_arch, width="stretch")
 
-    with col_s2:
-        with st.container(border=True):
-            fig_pca = px.scatter(
-                sellers.dropna(subset=["pca_dim1", "pca_dim2"]),
-                x="pca_dim1", y="pca_dim2",
-                color="seller_archetype",
-                color_discrete_map=arch_colors,
-                opacity=0.65,
-                hover_data=["seller_state", "total_orders", "total_revenue", "late_rate", "avg_review_score", "reliability_score"],
-                labels={"pca_dim1": "PCA Component 1", "pca_dim2": "PCA Component 2", "seller_archetype": "Tier"},
-            )
-            style_fig(
-                fig_pca,
-                title="Seller Distribution in PCA Latent Space",
-                height=390,
-                legend=dict(orientation="h", yanchor="top", y=-0.16, xanchor="center", x=0.5, font=dict(size=10)),
-                margin=dict(l=20, r=20, t=48, b=76),
-            )
-            st.plotly_chart(fig_pca, width="stretch")
-
-    col_s3, col_s4 = st.columns(2, gap="medium")
-    with col_s3:
-        with st.container(border=True):
-            radar_metrics = ["avg_price", "avg_handling_days", "avg_transit_days", "late_rate", "avg_review_score", "avg_distance_km"]
-            radar_labels = ["Avg Price", "Handling Days", "Transit Days", "Late Rate", "Avg Review", "Avg Distance"]
-            radar_norm = sellers.groupby("seller_archetype")[radar_metrics].median().reset_index()
-            for col in radar_metrics:
-                cmin, cmax = radar_norm[col].min(), radar_norm[col].max()
-                radar_norm[col] = (radar_norm[col] - cmin) / (cmax - cmin) if cmax > cmin else 0.5
-
-            fig_radar = go.Figure()
-            for _, row in radar_norm.iterrows():
-                vals = [row[m] for m in radar_metrics] + [row[radar_metrics[0]]]
-                labs = radar_labels + [radar_labels[0]]
-                fig_radar.add_trace(go.Scatterpolar(
-                    r=vals, theta=labs, fill="toself",
-                    name=row["seller_archetype"],
-                    line=dict(color=arch_colors.get(row["seller_archetype"], INDIGO), width=2),
-                    opacity=0.65,
-                ))
-            style_fig(
-                fig_radar,
-                title="Normalized Median Archetype Profiles",
-                height=420,
-                polar=dict(
-                    bgcolor="rgba(0,0,0,0)",
-                    radialaxis=dict(visible=True, range=[0, 1], gridcolor="rgba(148,163,184,0.12)", tickfont=dict(size=9)),
-                    angularaxis=dict(gridcolor="rgba(148,163,184,0.12)"),
-                ),
-                legend=dict(orientation="h", yanchor="top", y=-0.12, xanchor="center", x=0.5, font=dict(size=10)),
-                margin=dict(l=40, r=40, t=50, b=85),
-            )
-            st.plotly_chart(fig_radar, width="stretch")
-
-    with col_s4:
-        with st.container(border=True):
-            fig_rel = px.box(
-                sellers.dropna(subset=["reliability_score"]),
-                x="seller_archetype", y="reliability_score",
-                color="seller_archetype",
-                color_discrete_map=arch_colors,
-            )
-            style_fig(fig_rel, title="Reliability Score Distribution (0–100) by Tier", height=420, showlegend=False, xaxis_title="", yaxis_title="Reliability Score")
-            fig_rel.update_xaxes(tickangle=-12)
-            st.plotly_chart(fig_rel, width="stretch")
-
-    with st.container(border=True):
-        st.markdown("**Seller Tier Summary & Scorecard Lookup**")
-        tier_summary = (
-            sellers.groupby("seller_archetype")
-            .agg(
-                Sellers=("seller_id", "count"),
-                Avg_Orders=("total_orders", "mean"),
-                Avg_Revenue=("total_revenue", "mean"),
-                Late_Rate=("late_rate", "mean"),
-                Avg_Review=("avg_review_score", "mean"),
-                Reliability=("reliability_score", "mean"),
-            )
-            .reset_index()
-            .rename(columns={"seller_archetype": "Archetype"})
-        )
-        tier_summary["Late %"] = (tier_summary["Late_Rate"] * 100).round(1).astype(str) + "%"
-        st.dataframe(
-            tier_summary[["Archetype", "Sellers", "Avg_Orders", "Avg_Revenue", "Late %", "Avg_Review", "Reliability"]].round(2),
-            width="stretch",
-            hide_index=True,
+    st.markdown("## The delivery promise vs reality")
+    c1, c2 = st.columns([3, 2])
+    with c1:
+        header("Estimated vs actual delivery time (mean days)")
+        fig = go.Figure()
+        fig.add_bar(x=["On time", "Late"], y=[ontime["estimated_delivery_days"].mean(), late["estimated_delivery_days"].mean()],
+                    name="Estimated by Olist", marker_color="#c9d6e2")
+        fig.add_bar(x=["On time", "Late"], y=[ontime["total_delivery_days"].mean(), late["total_delivery_days"].mean()],
+                    name="Actual", marker_color=BLUE)
+        style(fig, 320, legend=True, barmode="group", yaxis=dict(title="Days"))
+        show(fig)
+    with c2:
+        callout(
+            "The estimate ignores route risk",
+            "Late orders were promised about the same window as on-time ones, yet took roughly three times longer. "
+            "A risk-aware estimate (longer for far or slow routes) would convert many late orders into on-time ones.",
         )
 
-    insight_box(
-        "Key Finding — Actionable 4-Tier Seller Operations",
-        "<b>Tier 1 (237 Star High-Volume Sellers)</b> average ~168 orders each with an 88.0 reliability score. "
-        "Meanwhile, <b>Tier 4 (754 At-Risk / Slow Sellers)</b> drop to a 63.0 average reliability score—identifying a concrete operational cohort for tighter dispatch SLAs or coaching.",
-        accent=TEAL,
+    st.markdown("## What if the promise were padded?")
+    st.write(
+        "Suppose every estimated delivery date were pushed back by a number of days. Orders that were late by less "
+        "than that become on-time. We assume those orders would then be reviewed like other on-time orders."
+    )
+    pad = st.slider("Days added to the promised date", 0, 14, 3)
+    dd = d.dropna(subset=["days_late"])
+    base_bad = low_review_rate(dd[dd["days_late"] <= 0])
+
+    def sim(p):
+        resc = dd[(dd["days_late"] > 0) & (dd["days_late"] <= p)]
+        rs = resc["review_score"].dropna()
+        avoided = (rs <= 2).sum() - base_bad * len(rs)
+        return (dd["days_late"] - p > 0).mean(), len(resc), avoided
+
+    new_rate, n_resc, avoided = sim(pad)
+    m = st.columns(4)
+    m[0].metric("Late rate now", pct((dd["days_late"] > 0).mean()))
+    m[1].metric(f"Late rate with +{pad} d", pct(new_rate))
+    m[2].metric("Orders turned on-time", fmt_int(n_resc))
+    m[3].metric("1-2 star reviews avoided (est.)", fmt_int(max(avoided, 0)))
+    xs = list(range(0, 15))
+    ys = [sim(p) for p in xs]
+    fig = go.Figure()
+    fig.add_scatter(x=xs, y=[v[0] * 100 for v in ys], mode="lines+markers", name="Late rate (%)", line=dict(color=BLUE, width=2.5))
+    fig.add_scatter(x=xs, y=[max(v[2], 0) for v in ys], mode="lines+markers", name="Bad reviews avoided", yaxis="y2",
+                    line=dict(color=ORANGE, width=2.5))
+    fig.add_vline(x=pad, line_dash="dot", line_color=GREY)
+    style(fig, 320, legend=True, xaxis=dict(title="Days added to estimate"),
+          yaxis=dict(title="Late rate (%)", rangemode="tozero"),
+          yaxis2=dict(title="1-2 star reviews avoided", overlaying="y", side="right", showgrid=False, rangemode="tozero"))
+    show(fig)
+    st.caption(
+        "This is a what-if on historical data, not a forecast. A longer promise can also lower conversion, "
+        "which this simple model does not capture."
     )
 
-# ══════════════════════════════════════════════════════════════
-# TAB 7 — RISK PATTERN MINING
-# ══════════════════════════════════════════════════════════════
-with tabs[6]:
-    section_banner(
-        "Lecture 18 • FP-Growth & Apriori Association Rules",
-        "Which Order Profiles Carry the Highest Risk of 1–2★ Reviews?",
-        "Frequent-pattern rules mined across order attributes (baseline bad-review rate: 12.8%) and multi-category baskets (Notebook 04).",
+
+# ===========================================================================
+# 3. STATISTICS & TRANSFORMATIONS
+# ===========================================================================
+NUM_LABELS = {
+    "total_price": "Order price (R$)", "total_freight": "Freight (R$)", "total_weight_g": "Weight (g)",
+    "approval_hours": "Approval time (h)", "seller_handling_days": "Seller handling (d)",
+    "carrier_transit_days": "Carrier transit (d)", "total_delivery_days": "Delivery time (d)",
+    "days_late": "Days late", "distance_km": "Distance (km)", "review_score": "Review score",
+}
+
+
+@st.cache_data(show_spinner=False)
+def transform_skews(x_values):
+    x = pd.Series(x_values).dropna()
+    if len(x) > 40000:
+        x = x.sample(40000, random_state=0)
+    out = {"Original": skew(x)}
+    if x.min() >= 0:
+        out["Square root"] = skew(np.sqrt(x))
+        out["Log (log1p)"] = skew(np.log1p(x))
+    if x.min() > 0:
+        out["Box-Cox"] = skew(stats.boxcox(x.values)[0])
+    out["Yeo-Johnson"] = skew(stats.yeojohnson(x.values)[0])
+    return out
+
+
+def run_tests(df):
+    d = df.dropna(subset=["days_late", "review_score", "lateness_bucket"])
+    late = d.loc[d["days_late"] > 0, "review_score"]
+    ok = d.loc[d["days_late"] <= 0, "review_score"]
+    if len(late) < 5 or len(ok) < 5:
+        return None
+    u = stats.mannwhitneyu(late, ok, alternative="two-sided")
+    delta = 2 * u.statistic / (len(late) * len(ok)) - 1
+    groups = [g["review_score"].values for _, g in d.groupby("lateness_bucket") if len(g) > 1]
+    kw = stats.kruskal(*groups) if len(groups) > 1 else None
+    ct = pd.crosstab(d["lateness_bucket"], d["review_score"] <= 2)
+    chi = stats.chi2_contingency(ct) if ct.shape[0] > 1 and ct.shape[1] > 1 else None
+    v = np.sqrt(chi[0] / (ct.values.sum() * (min(ct.shape) - 1))) if chi else np.nan
+    return dict(u=u, delta=delta, kw=kw, chi=chi, v=v, n_late=len(late), n_ok=len(ok),
+                med_late=late.median(), med_ok=ok.median())
+
+
+def page_statistics():
+    page_intro(
+        "3. Statistics & transformations",
+        "Notebook 02 - descriptive statistics, hypothesis tests, effect sizes, transformations",
+        "Almost every business variable in this data is right-skewed, so the choice of statistic and test matters.",
+    )
+    cols = [c for c in NUM_LABELS if c in filt.columns]
+
+    st.markdown("## Descriptive statistics")
+    rows = []
+    for c in cols:
+        x = filt[c].dropna()
+        rows.append([NUM_LABELS[c], len(x), x.mean(), x.median(), x.std(), skew(x), float(stats.kurtosis(x, bias=False))])
+    desc = pd.DataFrame(rows, columns=["Variable", "Count", "Mean", "Median", "Std dev", "Skewness", "Kurtosis"])
+    table(desc.style.format({"Count": "{:,.0f}", "Mean": "{:,.2f}", "Median": "{:,.2f}", "Std dev": "{:,.2f}",
+                              "Skewness": "{:.2f}", "Kurtosis": "{:.1f}"}).background_gradient(subset=["Skewness"], cmap="Oranges"))
+    callout(
+        "Mean and median disagree for money and time",
+        "Order price has a mean far above its median and a skewness near 10, because a few expensive orders pull the "
+        "average up. Approval time is the extreme case: a median of about 20 minutes but a mean of ten hours. For "
+        "these variables we report medians and use rank-based tests.",
     )
 
-    col_rk1, col_rk2 = st.columns([3, 2], gap="medium")
-    with col_rk1:
-        with st.container(border=True):
-            min_conf = st.slider("Minimum Confidence Threshold", 0.50, 0.90, 0.70, 0.05)
-            risk_filt = rules_risk[rules_risk["confidence"] >= min_conf].sort_values("lift", ascending=False).head(15).copy()
+    st.markdown("## Does lateness change the review? Three tests and two effect sizes")
+    res = run_tests(filt)
+    if res is None:
+        st.info("Not enough late and on-time orders in the current selection to run the tests.")
+    else:
+        t = pd.DataFrame([
+            ["Mann-Whitney U", "Review scores, late vs not late", f"U = {res['u'].statistic:,.0f}", fmt_p(res["u"].pvalue)],
+            ["Kruskal-Wallis", "Review scores across 5 lateness buckets",
+             f"H = {res['kw'].statistic:,.0f}" if res["kw"] else "n/a", fmt_p(res["kw"].pvalue) if res["kw"] else "n/a"],
+            ["Chi-square", "Lateness bucket vs low review (1-2 stars)",
+             f"chi2 = {res['chi'][0]:,.0f}" if res["chi"] else "n/a", fmt_p(res["chi"][1]) if res["chi"] else "n/a"],
+        ], columns=["Test", "Question", "Statistic", "p-value"])
+        c1, c2 = st.columns([3, 2])
+        with c1:
+            table(t)
+        with c2:
+            m1, m2 = st.columns(2)
+            m1.metric("Cliff's delta", f"{res['delta']:.2f}", help="-1 to +1. Negative: late orders get lower scores.")
+            m2.metric("Cramer's V", f"{res['v']:.2f}", help="0 to 1. Strength of the lateness / low-review association.")
+        size = "large" if abs(res["delta"]) >= 0.474 else "medium" if abs(res["delta"]) >= 0.33 else "small"
+        callout(
+            "Significant and large",
+            f"All three tests reject independence. With ~100k orders, p-values are always tiny, so the effect sizes "
+            f"tell the real story: Cliff's delta of {res['delta']:.2f} is a <b>{size}</b> effect. The median review is "
+            f"<b>{res['med_ok']:.0f}</b> star(s) for on-time orders and <b>{res['med_late']:.0f}</b> for late orders.",
+        )
 
-            if len(risk_filt):
-                risk_filt["conf_pct"] = risk_filt["confidence"] * 100
-                risk_filt["short_label"] = risk_filt["antecedent"].str.replace(" + ", " · ", regex=False).str[:58]
-                fig_risk = go.Figure(go.Bar(
-                    y=risk_filt["short_label"],
-                    x=risk_filt["lift"],
-                    orientation="h",
-                    marker=dict(
-                        color=risk_filt["conf_pct"],
-                        colorscale=[[0, AMBER], [0.5, ORANGE], [1, RED]],
-                        colorbar=dict(title="Conf %"),
-                        cornerradius=5,
-                    ),
-                    text=[f"{l:.2f}x ({c:.0f}%)" for l, c in zip(risk_filt["lift"], risk_filt["conf_pct"])],
-                    textposition="outside",
-                    cliponaxis=False,
-                    customdata=np.stack([risk_filt["antecedent"], risk_filt["n_orders"], risk_filt["conf_pct"]], axis=-1),
-                    hovertemplate="<b>%{customdata[0]}</b><br>Lift: %{x:.2f}x<br>Confidence: %{customdata[2]:.1f}%<br>Orders: %{customdata[1]:,}<extra></extra>",
-                ))
-                style_fig(
-                    fig_risk,
-                    title="Top 15 Bad-Review Risk Rules by Lift",
-                    height=500,
-                    xaxis_title="Lift (vs 12.8% Baseline)",
-                    yaxis=dict(autorange="reversed", showgrid=False),
-                    margin=dict(l=20, r=85, t=50, b=36),
-                )
-                st.plotly_chart(fig_risk, width="stretch")
-            else:
-                st.info("No rules meet the selected confidence threshold.")
+    st.markdown("## Relationships between variables")
+    c1, c2 = st.columns([3, 2])
+    method = c2.radio("Correlation type", ["Spearman", "Pearson"], horizontal=True,
+                      help="Spearman uses ranks and is robust to the heavy skew seen above.")
+    corr_cols = [c for c in ["total_price", "total_freight", "distance_km", "seller_handling_days", "carrier_transit_days",
+                             "total_delivery_days", "days_late", "review_score"] if c in filt.columns]
+    cm = filt[corr_cols].dropna().corr(method=method.lower())
+    labs = [NUM_LABELS[c] for c in corr_cols]
+    with c1:
+        fig = go.Figure(go.Heatmap(z=cm.values, x=labs, y=labs, zmin=-1, zmax=1, colorscale="RdBu_r",
+                                   text=np.round(cm.values, 2), texttemplate="%{text}", textfont=dict(size=11),
+                                   colorbar=dict(thickness=12)))
+        style(fig, 470, xaxis=dict(tickangle=-40), yaxis=dict(autorange="reversed", showgrid=False),
+              margin=dict(l=10, r=10, t=10, b=10))
+        show(fig)
+    with c2:
+        callout(
+            "Distance explains time, not ratings",
+            "Distance and delivery time are moderately related (Spearman about 0.54). Review score is tied to "
+            "delivery time and lateness, but order price has almost no relationship with it: customers judge the "
+            "promise, not the price.",
+        )
 
-    with col_rk2:
-        with st.container(border=True):
-            if len(rules_copurchase):
-                cop = rules_copurchase.sort_values("lift", ascending=False).copy()
-                cop["rule"] = cop["antecedent"] + " → " + cop["consequent"]
-                fig_cop = go.Figure(go.Bar(
-                    y=cop["rule"],
-                    x=cop["lift"],
-                    orientation="h",
-                    marker=dict(color=INDIGO, cornerradius=5),
-                    text=[f"{l:.2f}x (n={n})" for l, n in zip(cop["lift"], cop["n_baskets"])],
-                    textposition="outside",
-                    cliponaxis=False,
-                    customdata=cop["confidence"] * 100,
-                    hovertemplate="<b>%{y}</b><br>Lift: %{x:.2f}x<br>Confidence: %{customdata:.1f}%<extra></extra>",
-                ))
-                style_fig(
-                    fig_cop,
-                    title="Category Co-Purchase Rules (Multi-Category Orders)",
-                    height=500,
-                    xaxis_title="Lift",
-                    yaxis=dict(autorange="reversed", showgrid=False),
-                    margin=dict(l=20, r=75, t=50, b=36),
-                )
-                st.plotly_chart(fig_cop, width="stretch")
+    st.markdown("## Taming the skew: transformations")
+    st.write(
+        "Skewness near 0 means a symmetric distribution. Each transformation is applied to the selected data and "
+        "the skewness is recomputed. Log and Box-Cox need positive values, so days late (which is negative for early "
+        "deliveries) can only use Yeo-Johnson."
+    )
+    var = st.selectbox("Variable", cols[:-1] if "review_score" in cols else cols, format_func=lambda c: NUM_LABELS[c], index=0)
+    sk = transform_skews(filt[var].dropna().values)
+    sk_df = pd.DataFrame({"Method": list(sk), "Skewness": list(sk.values())})
+    c1, c2 = st.columns([2, 3])
+    with c1:
+        table(sk_df.style.format({"Skewness": "{:.3f}"}))
+        st.caption("Methods that need positive values are left out when the variable has zeros or negatives.")
+    with c2:
+        fig = go.Figure(go.Bar(
+            x=sk_df["Method"], y=sk_df["Skewness"],
+            marker_color=[RED if m == "Original" else BLUE for m in sk_df["Method"]],
+            text=[f"{v:.2f}" for v in sk_df["Skewness"]], textposition="outside", cliponaxis=False))
+        style(fig, 300, yaxis=dict(title="Skewness"))
+        show(fig)
+    x = filt[var].dropna()
+    xs = x.sample(min(len(x), 20000), random_state=0)
+    if xs.min() >= 0:
+        tr, tr_name = np.log1p(xs), "log1p"
+    else:
+        tr, tr_name = pd.Series(stats.yeojohnson(xs.values)[0]), "Yeo-Johnson"
+    c1, c2 = st.columns(2)
+    with c1:
+        header(f"{NUM_LABELS[var]} - original")
+        f = go.Figure(go.Histogram(x=xs, nbinsx=60, marker_color=RED))
+        style(f, 260, xaxis=dict(title=NUM_LABELS[var]), yaxis=dict(title="Orders"))
+        show(f)
+    with c2:
+        header(f"After {tr_name}")
+        f = go.Figure(go.Histogram(x=tr, nbinsx=60, marker_color=BLUE))
+        style(f, 260, xaxis=dict(title=f"{tr_name} of {NUM_LABELS[var]}"), yaxis=dict(title="Orders"))
+        show(f)
 
-    with st.container(border=True):
-        if len(rules_risk):
-            rl_df = rules_risk.copy()
-            rl_df["Confidence (%)"] = rl_df["confidence"] * 100
-            fig_rl = px.scatter(
-                rl_df,
-                x="Confidence (%)",
-                y="lift",
-                size="n_orders",
-                color="conviction",
-                color_continuous_scale=[[0, CYAN], [0.5, AMBER], [1, RED]],
-                hover_data=["antecedent", "n_orders", "support"],
-                labels={"lift": "Lift", "n_orders": "Orders", "conviction": "Conviction"},
-                opacity=0.72,
-            )
-            style_fig(fig_rl, title="Rule Quality Landscape: Confidence × Lift × Order Volume", height=400)
-            st.plotly_chart(fig_rl, width="stretch")
+    st.markdown("## Encoding categorical and time variables")
+    table(pd.DataFrame([
+        ["Payment type", "One-hot", "Nominal, no order, only a few levels"],
+        ["State, category", "Frequency + target encoding", "Many levels; target encoding uses 5-fold out-of-fold means so a row never sees its own label"],
+        ["Review score", "Ordinal (kept as 1-5)", "Natural order already present"],
+        ["Hour, weekday, month", "Sine / cosine pairs", "Keeps 23h next to 0h and December next to January"],
+    ], columns=["Variable", "Encoding", "Why"]))
 
-            with st.expander("📋 Inspect Full Risk Rule Definitions"):
-                disp_rules = rl_df[["antecedent", "n_orders", "support", "Confidence (%)", "lift", "conviction"]].sort_values("lift", ascending=False).head(50)
-                st.dataframe(
-                    disp_rules.style.format({"support": "{:.3f}", "Confidence (%)": "{:.1f}%", "lift": "{:.2f}x", "conviction": "{:.2f}"}),
-                    width="stretch",
-                    hide_index=True,
-                )
 
-    insight_box(
-        "Key Finding — Combined Route & Delay Risk Multiplies Dissatisfaction 6.3×",
-        "Cross-state orders delayed <b>&gt;7 days</b>—especially combined with slow seller handling or high freight—receive 1–2★ reviews roughly <b>80.6% of the time</b> "
-        "(6.29× lift above the 12.8% baseline). Delivery reliability outweighs product category or price as a driver of bad reviews.",
-        accent=AMBER,
+# ===========================================================================
+# 4. OUTLIERS & MISSING VALUES
+# ===========================================================================
+OUT_VARS = ["total_price", "total_freight", "total_weight_g", "total_delivery_days", "days_late", "distance_km", "approval_hours"]
+
+
+def treatment_table(x, k):
+    x = x.dropna()
+    q1, q3 = x.quantile([0.25, 0.75])
+    lo, hi = q1 - k * (q3 - q1), q3 + k * (q3 - q1)
+    p1, p99 = x.quantile([0.01, 0.99])
+    rows = {"Original": x, "Winsorized (1-99%)": x.clip(p1, p99), "IQR-trimmed": x[(x >= lo) & (x <= hi)]}
+    if x.min() >= 0:
+        rows["log1p"] = np.log1p(x)
+    return pd.DataFrame([[n, len(v), v.mean(), v.median(), v.std(), skew(v)] for n, v in rows.items()],
+                        columns=["Treatment", "Count", "Mean", "Median", "Std dev", "Skewness"])
+
+
+def page_outliers():
+    page_intro(
+        "4. Outliers & missing values",
+        "Notebook 03 - outlier detection and handling, missing-value analysis, imputation experiment",
+        "Extreme values are not automatically errors. We first detect them with two rules, then compare ways of "
+        "handling them before deciding what to keep.",
+    )
+    st.markdown("## Outlier explorer")
+    c1, c2, c3, c4 = st.columns([2, 1, 1, 1])
+    var = c1.selectbox("Variable", OUT_VARS, format_func=lambda c: NUM_LABELS[c])
+    k = c2.slider("IQR multiplier", 1.0, 3.0, 1.5, 0.25)
+    z = c3.slider("Z-score cutoff", 2.0, 4.0, 3.0, 0.25)
+    x = filt[var].dropna()
+    can_log = bool((x > 0).all())
+    use_log = c4.checkbox("Log x-axis", value=can_log, disabled=not can_log,
+                          help="Only available for strictly positive variables.")
+    q1, q3 = x.quantile([0.25, 0.75])
+    lo, hi = q1 - k * (q3 - q1), q3 + k * (q3 - q1)
+    iqr_m = (x < lo) | (x > hi)
+    z_m = ((x - x.mean()) / x.std()).abs() > z
+    m = st.columns(4)
+    m[0].metric("Values analysed", fmt_int(len(x)))
+    m[1].metric("Flagged by IQR", f"{iqr_m.sum():,}", f"{iqr_m.mean() * 100:.1f}%", delta_color="off")
+    m[2].metric("Flagged by Z-score", f"{z_m.sum():,}", f"{z_m.mean() * 100:.1f}%", delta_color="off")
+    m[3].metric("Flagged by both", f"{(iqr_m & z_m).sum():,}", f"{(iqr_m & z_m).mean() * 100:.1f}%", delta_color="off")
+
+    c1, c2 = st.columns(2)
+    with c1:
+        header("Distribution with fences", "Dashed: IQR upper fence. Dotted: Z-score cutoff.")
+        xs = x.sample(min(len(x), 30000), random_state=0)
+        zc = x.mean() + z * x.std()
+        # Plotly histograms mis-bin on log axes, so bin in log10 space ourselves.
+        tf = (lambda v: np.log10(v)) if use_log else (lambda v: v)
+        fig = go.Figure(go.Histogram(x=tf(xs), nbinsx=70, marker_color="#8fb3cf"))
+        fig.add_vline(x=float(tf(hi)), line_dash="dash", line_color=RED)
+        if zc > 0 or not use_log:
+            fig.add_vline(x=float(tf(zc)), line_dash="dot", line_color=ORANGE)
+        if lo > x.min() and not (use_log and lo <= 0):
+            fig.add_vline(x=float(tf(lo)), line_dash="dash", line_color=RED)
+        xaxis = dict(title=NUM_LABELS[var])
+        if use_log:
+            a, b = int(np.floor(np.log10(xs.min()))), int(np.ceil(np.log10(xs.max())))
+            xaxis.update(tickmode="array", tickvals=list(range(a, b + 1)), ticktext=[f"{10.0 ** i:g}" for i in range(a, b + 1)])
+        style(fig, 360, xaxis=xaxis, yaxis=dict(title="Orders"))
+        show(fig)
+    with c2:
+        header("Box plot by review score", "One box per star rating; points beyond the whiskers are potential outliers.")
+        bp = filt.dropna(subset=[var, "review_score"])
+        bp = bp.sample(min(len(bp), 15000), random_state=0)
+        bp["Stars"] = bp["review_score"].astype(int).astype(str) + " star"
+        fig = px.box(bp.sort_values("review_score"), x=var, y="Stars", orientation="h", points="outliers",
+                     color_discrete_sequence=[BLUE], category_orders={"Stars": [f"{i} star" for i in range(5, 0, -1)]})
+        fig.update_traces(marker=dict(size=3, opacity=0.35, color=ORANGE), line=dict(width=1.5), fillcolor="rgba(47,111,159,0.25)")
+        style(fig, 360, xaxis=dict(title=NUM_LABELS[var], type="log" if use_log else "linear"), yaxis=dict(title="", showgrid=False))
+        show(fig)
+
+    st.markdown("## What happens if we treat the outliers?")
+    tt = treatment_table(filt[var], k)
+    c1, c2 = st.columns([3, 2])
+    with c1:
+        table(tt.style.format({"Count": "{:,.0f}", "Mean": "{:,.2f}", "Median": "{:,.2f}", "Std dev": "{:,.2f}", "Skewness": "{:.2f}"}))
+    with c2:
+        fig = go.Figure(go.Bar(x=tt["Treatment"], y=tt["Skewness"], marker_color=BLUE,
+                               text=[f"{v:.2f}" for v in tt["Skewness"]], textposition="outside", cliponaxis=False))
+        style(fig, 280, yaxis=dict(title="Skewness"), xaxis=dict(tickangle=-15))
+        show(fig)
+    callout(
+        "Why we did not simply delete outliers",
+        "Winsorizing keeps every row and still lowers the standard deviation. Trimming removes thousands of real, "
+        "expensive or very slow orders and changes the mean a lot. The median barely moves under capping, which is "
+        "why it is the safer summary here.",
     )
 
-# ══════════════════════════════════════════════════════════════
-# TAB 8 — DEEP DIVE EXPLORER
-# ══════════════════════════════════════════════════════════════
-with tabs[7]:
-    section_banner(
-        "Interactive Sandbox • Custom Feature Explorer",
-        "Explore Relationships, Correlations & Category Metrics",
-        "Pick any two order variables, slice by category/status, and inspect category benchmarks dynamically.",
+    st.markdown("## IQR and Z-score disagree (full dataset, all tables)")
+    bench = pd.DataFrame([
+        ["Orders", "total_price", 7913, 1709], ["Orders", "total_freight", 9941, 1581], ["Orders", "total_weight_g", 13804, 1962],
+        ["Orders", "total_volume_cm3", 9164, 1706], ["Orders", "approval_hours", 9141, 1095], ["Orders", "seller_handling_days", 5660, 1871],
+        ["Orders", "carrier_transit_days", 5071, 1581], ["Orders", "total_delivery_days", 4899, 1571], ["Orders", "days_late", 4875, 1333],
+        ["Orders", "distance_km", 7622, 1564], ["Items", "price", 8427, 1966], ["Items", "freight_value", 12134, 2041],
+        ["Items", "product_weight_g", 15807, 2955], ["Items", "product_volume_cm3", 10004, 2498],
+    ], columns=["Dataset", "Variable", "IQR", "Z-score"])
+    bench["Label"] = bench["Dataset"] + " / " + bench["Variable"]
+    bench = bench.sort_values("IQR")
+    fig = go.Figure()
+    fig.add_bar(y=bench["Label"], x=bench["IQR"], orientation="h", name="IQR rule", marker_color=BLUE)
+    fig.add_bar(y=bench["Label"], x=bench["Z-score"], orientation="h", name="Z-score > 3", marker_color=ORANGE)
+    style(fig, 520, legend=True, barmode="group", xaxis=dict(title="Flagged values"), yaxis=dict(showgrid=False))
+    show(fig)
+    st.caption("From Notebook 03 (full data, not filtered). The mean and standard deviation that the Z-score uses are themselves distorted by the skew, so it flags far fewer values than the quartile-based rule.")
+
+    st.markdown("## Missing values")
+    c1, c2 = st.columns([2, 3])
+    with c1:
+        header("Share of missing values by column (master_orders)")
+        ms = missing_share[missing_share > 0].head(12).sort_values()
+        fig = go.Figure(go.Bar(x=ms.values * 100, y=ms.index, orientation="h", marker_color=BLUE,
+                               text=[f"{v * 100:.1f}%" for v in ms.values], textposition="outside", cliponaxis=False))
+        style(fig, 400, xaxis=dict(title="% missing", range=[0, max(ms.max() * 100 * 1.2, 5)]), yaxis=dict(showgrid=False),
+              margin=dict(l=10, r=40, t=10, b=10))
+        show(fig)
+    with c2:
+        callout(
+            "Missing does not always mean random",
+            "Most gaps are structural: no delivery date for orders that were cancelled, no comment text for reviewers "
+            "who only left a star rating. Review comments are missing for about 59% of reviews, which is a large "
+            "share, so we checked whether that missingness carries information.",
+        )
+        st.write("")
+
+    c1, c2 = st.columns(2)
+    d = filt.dropna(subset=["review_score", "has_comment"])
+    with c1:
+        header("Share of reviews with a written comment, by star rating")
+        g = d.groupby("review_score")["has_comment"].mean() * 100
+        fig = go.Figure(go.Bar(x=[f"{int(i)} star" for i in g.index], y=g.values, marker_color=[RED, ORANGE, GREY, "#8fb3cf", BLUE],
+                               text=[f"{v:.0f}%" for v in g.values], textposition="outside", cliponaxis=False))
+        style(fig, 320, yaxis=dict(title="% with comment", range=[0, 100]))
+        show(fig)
+    with c2:
+        header("... and by delivery outcome")
+        g2 = filt.dropna(subset=["lateness_bucket", "has_comment"]).groupby("lateness_bucket")["has_comment"].mean().reindex(present_buckets) * 100
+        fig = go.Figure(go.Bar(x=[BUCKET_SHORT[b] for b in g2.index], y=g2.values, marker_color=[BUCKET_COLORS[b] for b in g2.index],
+                               text=[f"{v:.0f}%" for v in g2.values], textposition="outside", cliponaxis=False))
+        style(fig, 320, yaxis=dict(title="% with comment", range=[0, 100]))
+        show(fig)
+    ct = pd.crosstab(filt["lateness_bucket"], filt["has_comment"])
+    if ct.shape[0] > 1 and ct.shape[1] > 1:
+        chi2, p, dof, _ = stats.chi2_contingency(ct)
+        callout(
+            "Unhappy customers write more (missing not at random)",
+            f"Chi-square test of comment vs lateness bucket: chi2 = {chi2:,.0f}, dof = {dof}, p = {fmt_p(p)}. "
+            "1-star reviewers comment far more often than 4-5 star reviewers, so a text analysis of comments "
+            "over-represents complaints. We keep this in mind when reading the text-mining results.",
+        )
+
+    st.markdown("## Imputation experiment")
+    st.write(
+        "To compare imputation methods fairly, 15% of known product dimensions were hidden (4,942 values per feature), "
+        "filled in with each method, and compared with the truth. Errors are only comparable within a feature."
+    )
+    imp = pd.DataFrame([
+        ["Weight (g)", "Mean", 2550.90, 4368.12], ["Weight (g)", "Median", 1964.98, 4649.87], ["Weight (g)", "kNN", 2130.60, 3944.67], ["Weight (g)", "MICE", 2300.23, 3523.95],
+        ["Length (cm)", "Mean", 12.65, 16.77], ["Length (cm)", "Median", 11.92, 17.74], ["Length (cm)", "kNN", 11.02, 15.91], ["Length (cm)", "MICE", 10.68, 15.06],
+        ["Height (cm)", "Mean", 9.68, 13.89], ["Height (cm)", "Median", 9.29, 14.52], ["Height (cm)", "kNN", 9.51, 13.77], ["Height (cm)", "MICE", 9.25, 12.76],
+        ["Width (cm)", "Mean", 9.40, 12.04], ["Width (cm)", "Median", 8.77, 12.45], ["Width (cm)", "kNN", 7.43, 10.71], ["Width (cm)", "MICE", 7.75, 10.62],
+    ], columns=["Feature", "Method", "MAE", "RMSE"])
+    c1, c2 = st.columns([1, 1])
+    feat = c1.selectbox("Feature", imp["Feature"].unique())
+    metric = c2.radio("Error", ["RMSE", "MAE"], horizontal=True)
+    sub = imp[imp["Feature"] == feat]
+    best = sub[metric].idxmin()
+    fig = go.Figure(go.Bar(x=sub["Method"], y=sub[metric], marker_color=[GREEN if i == best else "#b9c6d2" for i in sub.index],
+                           text=[f"{v:,.2f}" for v in sub[metric]], textposition="outside", cliponaxis=False))
+    style(fig, 320, yaxis=dict(title=f"{metric} (lower is better)", rangemode="tozero"))
+    show(fig)
+    callout(
+        "The best method depends on the error you care about",
+        "MICE has the lowest RMSE for all four features because it uses the other dimensions to predict the "
+        "missing one and avoids large misses. For the very skewed weight, the median wins on MAE: it is a safe "
+        "typical value but misses badly on heavy products. The categorical column had no real gaps, so mode "
+        "imputation was demonstrated on masked labels only.",
     )
 
-    with st.container(border=True):
-        numeric_cols = [
-            "total_price", "total_freight", "freight_ratio", "total_weight_g",
-            "distance_km", "approval_hours", "seller_handling_days",
-            "carrier_transit_days", "total_delivery_days", "days_late",
-            "review_score", "item_count", "max_installments",
-        ]
-        col_e1, col_e2, col_e3, col_e4 = st.columns(4)
-        with col_e1:
-            x_var = st.selectbox("X-axis", numeric_cols, index=4)
-        with col_e2:
-            y_var = st.selectbox("Y-axis", numeric_cols, index=8)
-        with col_e3:
-            color_var = st.selectbox("Color by", ["review_score", "is_late", "lateness_bucket", "customer_state", "primary_category", "is_cross_state"], index=0)
-        with col_e4:
-            sample_size = st.slider("Sample size", 500, 10000, 3000, 500)
 
-        clean_exp = filt.dropna(subset=[x_var, y_var])
-        if len(clean_exp):
-            explore_data = clean_exp.sample(n=min(sample_size, len(clean_exp)), random_state=42)
-            if color_var == "review_score":
-                scatter_kwargs = dict(
-                    x=x_var, y=y_var, color=color_var,
-                    color_continuous_scale=[[0, RED], [0.5, AMBER], [1, GREEN]],
-                    opacity=0.55,
-                )
-                try:
-                    import statsmodels.api  # noqa: F401
-                    scatter_kwargs["trendline"] = "ols"
-                except ImportError:
-                    pass
-                fig_explore = px.scatter(explore_data, **scatter_kwargs)
-            else:
-                fig_explore = px.scatter(
-                    explore_data, x=x_var, y=y_var, color=color_var,
-                    color_discrete_sequence=COLORS,
-                    opacity=0.55,
-                )
-            style_fig(
-                fig_explore,
-                title=f"{y_var.replace('_', ' ').title()} vs {x_var.replace('_', ' ').title()}",
-                height=440,
-            )
-            st.plotly_chart(fig_explore, width="stretch")
+# ===========================================================================
+# 5. REVIEWS (TEXT MINING)
+# ===========================================================================
+def terms_chart(df, color, title):
+    d = df.sort_values("mean_tfidf", ascending=False).head(15).sort_values("mean_tfidf")
+    header(title)
+    fig = go.Figure(go.Bar(x=d["mean_tfidf"], y=d["term"], orientation="h", marker_color=color))
+    style(fig, 430, xaxis=dict(title="Mean TF-IDF"), yaxis=dict(showgrid=False), margin=dict(l=10, r=10, t=10, b=10))
+    show(fig)
+
+
+def page_text():
+    page_intro(
+        "5. Reviews (text mining)",
+        "Notebook 04, section A - Portuguese TF-IDF with negation handling",
+        "41% of reviews contain text (40,774 of 98,673). We looked at which words separate complaints from praise.",
+    )
+    c1, c2 = st.columns(2)
+    with c1:
+        header("Star rating distribution")
+        v = filt["review_score"].dropna().astype(int).value_counts().sort_index()
+        fig = go.Figure(go.Bar(x=[f"{i} star" for i in v.index], y=v.values,
+                               marker_color=[RED, ORANGE, GREY, "#8fb3cf", BLUE], text=[f"{n:,}" for n in v.values],
+                               textposition="outside", cliponaxis=False))
+        style(fig, 320, yaxis=dict(title="Orders"))
+        show(fig)
+    with c2:
+        header("Share of low reviews (1-2 stars) by delivery outcome")
+        g = filt.dropna(subset=["lateness_bucket", "review_score"]).groupby("lateness_bucket")["review_score"].apply(lambda s: (s <= 2).mean() * 100)
+        g = g.reindex(present_buckets)
+        fig = go.Figure(go.Bar(x=[BUCKET_SHORT[b] for b in g.index], y=g.values, marker_color=[BUCKET_COLORS[b] for b in g.index],
+                               text=[f"{v:.0f}%" for v in g.values], textposition="outside", cliponaxis=False))
+        style(fig, 320, yaxis=dict(title="% of reviews", range=[0, 100]))
+        show(fig)
+
+    st.markdown("## Cleaning Portuguese text without losing the complaint")
+    st.write(
+        "Standard stopword lists delete words such as *nao* (not), *nunca* (never) and *sem* (without). Doing that "
+        "turns \"nao recebi\" (I did not receive) into \"recebi\" (I received) and makes complaints look like praise. "
+        "We removed accents, punctuation and neutral stopwords but kept the negations, and used unigrams plus bigrams "
+        "(40,556 reviews x 4,385 terms)."
+    )
+    if nlp_top is None or nlp_dist is None:
+        st.info("NLP result files were not found.")
+        return
+    groups = list(nlp_top["group"].unique())
+    pairs = [("1-star", "5-star"), ("late", "on-time")]
+    pairs = [p for p in pairs if p[0] in groups and p[1] in groups]
+    if pairs:
+        pick = st.radio("Compare", [f"{a} vs {b}" for a, b in pairs], horizontal=True)
+        a, b = pairs[[f"{x} vs {y}" for x, y in pairs].index(pick)]
+        c1, c2 = st.columns(2)
+        with c1:
+            terms_chart(nlp_top[nlp_top["group"] == a], RED, f"Top terms in {a} reviews")
+        with c2:
+            terms_chart(nlp_top[nlp_top["group"] == b], GREEN, f"Top terms in {b} reviews")
+
+    st.markdown("## Words that separate complaints from praise")
+    n = st.slider("Terms per side", 6, 20, 12)
+    dd = pd.concat([nlp_dist.nlargest(n, "difference"), nlp_dist.nsmallest(n, "difference")]).sort_values("difference")
+    header("TF-IDF in 1-star minus TF-IDF in 5-star reviews", "Right: used more by unhappy customers. Left: used more by happy customers.")
+    fig = go.Figure(go.Bar(x=dd["difference"], y=dd["term"], orientation="h",
+                           marker_color=[RED if v > 0 else GREEN for v in dd["difference"]]))
+    fig.add_vline(x=0, line_color=GREY)
+    style(fig, max(380, n * 26), xaxis=dict(title="Difference in mean TF-IDF"), yaxis=dict(showgrid=False))
+    show(fig)
+    callout(
+        "Complaints are about not receiving the order",
+        "The strongest complaint terms are <i>nao recebi</i> (did not receive), <i>nao entregue</i> (not delivered) and "
+        "<i>nao chegou</i> (did not arrive). Praise is dominated by <i>otimo</i>, <i>recomendo</i> and <i>prazo</i> "
+        "(on time). Words about the product itself appear far less, which supports the numeric finding that delivery "
+        "drives ratings. Remember that comments over-represent unhappy customers (section 4).",
+    )
+
+
+# ===========================================================================
+# 6. GEOGRAPHY & NETWORK
+# ===========================================================================
+STATE_XY = {
+    "AC": (-70.5, -9.0), "AL": (-36.6, -9.6), "AM": (-64.6, -4.1), "AP": (-51.9, 1.4), "BA": (-41.7, -12.9),
+    "CE": (-39.3, -5.2), "DF": (-47.8, -15.8), "ES": (-40.7, -19.6), "GO": (-49.6, -15.9), "MA": (-45.3, -5.1),
+    "MG": (-44.7, -18.5), "MS": (-54.8, -20.5), "MT": (-55.9, -12.9), "PA": (-52.3, -3.9), "PB": (-36.8, -7.1),
+    "PE": (-37.9, -8.4), "PI": (-42.8, -7.7), "PR": (-51.6, -24.6), "RJ": (-42.7, -22.2), "RN": (-36.5, -5.8),
+    "RO": (-62.8, -10.9), "RR": (-61.3, 2.1), "RS": (-53.5, -29.8), "SC": (-50.5, -27.3), "SE": (-37.4, -10.6),
+    "SP": (-48.7, -22.2), "TO": (-48.3, -10.2),
+}
+
+
+def page_geo():
+    page_intro(
+        "6. Geography & network",
+        "Notebook 04, section B - shipping network graph, route risk",
+        "Every delivery is an edge from a seller state to a customer state. The resulting directed network shows "
+        "which states act as hubs and which corridors are slow.",
+    )
+    if state_metrics is None or routes is None:
+        st.info("Graph result files were not found.")
+        return
+
+    st.markdown("## The shipping network")
+    c1, c2 = st.columns([3, 2])
+    with c1:
+        top = routes[routes["seller_state"] != routes["customer_state"]].nlargest(40, "order_count")
+        inbound = routes.groupby("customer_state")["order_count"].sum()
+        late_in = state_metrics.set_index("state")["dest_late_rate"] if "dest_late_rate" in state_metrics else pd.Series(dtype=float)
+        fig = go.Figure()
+        for _, r in top.iterrows():
+            if r["seller_state"] in STATE_XY and r["customer_state"] in STATE_XY:
+                (x0, y0), (x1, y1) = STATE_XY[r["seller_state"]], STATE_XY[r["customer_state"]]
+                fig.add_scatter(x=[x0, x1], y=[y0, y1], mode="lines", hoverinfo="skip", showlegend=False,
+                                line=dict(color="rgba(47,111,159,0.25)", width=max(0.6, np.sqrt(r["order_count"]) / 12)))
+        st_list = [s for s in STATE_XY if s in inbound.index]
+        fig.add_scatter(
+            x=[STATE_XY[s][0] for s in st_list], y=[STATE_XY[s][1] for s in st_list], mode="markers+text", text=st_list,
+            textposition="middle center", textfont=dict(size=10, color="white"),
+            marker=dict(size=[14 + np.sqrt(inbound[s]) / 5 for s in st_list], color=[late_in.get(s, np.nan) * 100 for s in st_list],
+                        colorscale="YlOrRd", colorbar=dict(title="Late %", thickness=12), line=dict(color="white", width=1)),
+            customdata=[[int(inbound[s])] for s in st_list], hovertemplate="%{text}<br>Inbound orders: %{customdata[0]:,}<extra></extra>",
+            showlegend=False)
+        style(fig, 480, xaxis=dict(visible=False), yaxis=dict(visible=False, scaleanchor="x"), margin=dict(l=0, r=0, t=0, b=0))
+        show(fig)
+        st.caption("Bubble size: orders received. Colour: late rate for orders delivered to that state. Lines: 40 busiest inter-state routes.")
+    with c2:
+        sm = state_metrics.sort_values("pagerank", ascending=False).head(6)
+        header("Most central states (PageRank)")
+        table(sm[["state", "pagerank", "betweenness", "in_strength", "out_strength"]].rename(columns={
+            "state": "State", "pagerank": "PageRank", "betweenness": "Betweenness", "in_strength": "Orders in", "out_strength": "Orders out"}).style.format(
+            {"PageRank": "{:.3f}", "Betweenness": "{:.3f}", "Orders in": "{:,.0f}", "Orders out": "{:,.0f}"}))
+        callout(
+            "One hub, no communities",
+            "Sao Paulo ships about 61% of all inter-state orders and holds almost all the betweenness. The 27-state "
+            "graph is so densely connected through SP that community detection finds a single group (modularity 0), "
+            "so we judge states by centrality and by route performance instead.",
+        )
+
+    st.markdown("## Which destinations are slowest?")
+    sa = (filt.groupby("customer_state").agg(orders=("order_id", "count"), late=("is_late", "mean"), review=("review_score", "mean"))
+          .reset_index().query("orders >= 100").sort_values("late", ascending=False).head(15).sort_values("late"))
+    header("Late rate by destination state", "States with at least 100 orders in the current selection.")
+    fig = go.Figure(go.Bar(x=sa["late"] * 100, y=sa["customer_state"], orientation="h",
+                           marker_color=sa["late"] * 100, marker_colorscale="YlOrRd",
+                           text=[f"{l * 100:.1f}%  ({n:,} orders)" for l, n in zip(sa["late"], sa["orders"])],
+                           textposition="outside", cliponaxis=False))
+    style(fig, 460, xaxis=dict(title="Late rate (%)", range=[0, max(sa["late"].max() * 100 * 1.35, 5)]), yaxis=dict(showgrid=False),
+          margin=dict(l=10, r=40, t=10, b=10))
+    show(fig)
+
+    st.markdown("## Distance and delivery time")
+    dist = filt.dropna(subset=["distance_km", "total_delivery_days"]).copy()
+    dist["bin"] = pd.cut(dist["distance_km"], [0, 100, 250, 500, 750, 1000, 1500, 2000, 4000], include_lowest=True)
+    gb = dist.groupby("bin", observed=True)["total_delivery_days"]
+    qq = pd.DataFrame({"q25": gb.quantile(0.25), "med": gb.median(), "q75": gb.quantile(0.75), "n": gb.size()}).reset_index()
+    qq["label"] = [f"{int(max(i.left, 0))}-{int(i.right)}" for i in qq["bin"]]
+    c1, c2 = st.columns([3, 2])
+    with c1:
+        fig = go.Figure()
+        fig.add_scatter(x=qq["label"], y=qq["q75"], mode="lines", line=dict(width=0), showlegend=False, hoverinfo="skip")
+        fig.add_scatter(x=qq["label"], y=qq["q25"], mode="lines", line=dict(width=0), fill="tonexty",
+                        fillcolor="rgba(47,111,159,0.18)", name="Middle 50% of orders")
+        fig.add_scatter(x=qq["label"], y=qq["med"], mode="lines+markers", line=dict(color=BLUE, width=2.5), name="Median")
+        style(fig, 340, legend=True, xaxis=dict(title="Seller-to-customer distance (km)"), yaxis=dict(title="Delivery days", rangemode="tozero"))
+        show(fig)
+    with c2:
+        rho = stats.spearmanr(dist["distance_km"], dist["total_delivery_days"])[0]
+        callout(
+            "Distance matters, but spread grows with it",
+            f"Spearman correlation between distance and delivery time is <b>{rho:.2f}</b>. Beyond ~1,000 km the "
+            "middle half of orders already spans many days, so far destinations are both slower and less predictable.",
+        )
+        cross = filt.groupby("is_cross_state").agg(late=("is_late", "mean"), days=("total_delivery_days", "mean"), review=("review_score", "mean"))
+        if len(cross) == 2:
+            table(pd.DataFrame({
+                "": ["Same state", "Cross state"],
+                "Late rate": [pct(cross.loc[0, "late"]), pct(cross.loc[1, "late"])],
+                "Avg days": [f"{cross.loc[0, 'days']:.1f}", f"{cross.loc[1, 'days']:.1f}"],
+                "Avg review": [f"{cross.loc[0, 'review']:.2f}", f"{cross.loc[1, 'review']:.2f}"],
+            }))
+
+    st.markdown("## Worst routes (seller state to customer state)")
+    c1, c2 = st.columns([1, 2])
+    min_o = c1.slider("Minimum orders per route", 20, 500, 100, 20,
+                      help="Rare routes with a handful of orders can look extreme by chance.")
+    key = c2.radio("Rank by", ["Late rate", "Lowest review"], horizontal=True)
+    rf = routes[routes["order_count"] >= min_o].copy()
+    rf["route"] = rf["seller_state"] + " to " + rf["customer_state"]
+    if key == "Late rate":
+        w = rf.nlargest(12, "late_rate").sort_values("late_rate")
+        xv, label = w["late_rate"] * 100, [f"{v * 100:.1f}%" for v in w["late_rate"]]
+    else:
+        w = rf.nsmallest(12, "avg_review").sort_values("avg_review", ascending=False)
+        xv, label = w["avg_review"], [f"{v:.2f}" for v in w["avg_review"]]
+    fig = go.Figure(go.Bar(x=xv, y=w["route"], orientation="h", marker_color=RED,
+                           text=[f"{t}  ({n:,} orders)" for t, n in zip(label, w["order_count"])], textposition="outside", cliponaxis=False))
+    style(fig, 420, xaxis=dict(title="Late rate (%)" if key == "Late rate" else "Average review", range=[0, float(xv.max()) * 1.4]),
+          yaxis=dict(showgrid=False), margin=dict(l=10, r=40, t=10, b=10))
+    show(fig)
+    st.caption(f"{len(rf)} of {len(routes)} routes have at least {min_o} orders.")
+    callout(
+        "Long corridors from Sao Paulo to the north-east are the problem",
+        "In the full data SP to AL (26% late) and SP to MA (21%) are the worst well-populated routes, while SP to RJ "
+        "(15.5%) produces the largest number of late orders because it carries so much traffic. Within a state the late "
+        "rate is only about 6%.",
+    )
+
+
+# ===========================================================================
+# 7. ASSOCIATION RULES
+# ===========================================================================
+def clean_rule(s, width=34):
+    def one(p):
+        k, _, v = p.partition("=")
+        return f"{k.replace('_', ' ').title()}: {v.replace('_', ' ')}" if v else p.replace("_", " ")
+    parts = [one(p) for p in s.split(" + ")]
+    out, line = [], ""
+    for p in parts:
+        if line and len(line) + len(p) > width:
+            out.append(line)
+            line = p
         else:
-            st.info("No non-null rows available for the selected axis pair.")
+            line = f"{line} + {p}" if line else p
+    out.append(line)
+    return "<br>".join(out)
 
-    col_ex1, col_ex2 = st.columns([3, 2], gap="medium")
-    with col_ex1:
-        with st.container(border=True):
-            st.markdown("**Category Performance Summary**")
-            cat_summary = (
-                filt.groupby("primary_category")
-                .agg(
-                    orders=("order_id", "count"),
-                    avg_price=("total_price", "mean"),
-                    avg_freight=("total_freight", "mean"),
-                    avg_delivery_days=("total_delivery_days", "mean"),
-                    avg_days_late=("days_late", "mean"),
-                    late_pct=("is_late", "mean"),
-                    avg_review=("review_score", "mean"),
-                    avg_distance=("distance_km", "mean"),
-                )
-                .reset_index()
-                .sort_values("orders", ascending=False)
-            )
-            cat_summary["late_pct"] = (cat_summary["late_pct"] * 100).round(1)
-            cat_summary = cat_summary.round(2)
 
-            st.dataframe(
-                cat_summary.style.background_gradient(subset=["late_pct"], cmap="RdYlGn_r")
-                .background_gradient(subset=["avg_review"], cmap="RdYlGn")
-                .format({"avg_price": "R$ {:.2f}", "avg_freight": "R$ {:.2f}", "avg_distance": "{:.0f} km", "late_pct": "{:.1f}%"}),
-                width="stretch",
-                height=440,
-                hide_index=True,
-            )
+def page_rules():
+    page_intro(
+        "7. Association rules",
+        "Notebook 04, section C - FP-Growth and Apriori",
+        "We looked for combinations of order characteristics that go together with a 1-2 star review.",
+    )
+    st.markdown("## First attempt: which categories are bought together?")
+    c1, c2 = st.columns([2, 3])
+    with c1:
+        st.metric("Orders with 2+ categories", "786", "0.8% of orders", delta_color="off")
+        callout(
+            "Too few baskets",
+            "97.9% of orders contain a single category, so only 786 baskets can form category rules. The few rules found "
+            "are real but cover a tiny share of sales, so we did not stop there.",
+        )
+    with c2:
+        if rules_cop is not None and len(rules_cop):
+            cop = rules_cop.sort_values("lift").copy()
+            cop["rule"] = (cop["antecedent"] + " -> " + cop["consequent"]).str.replace("_", " ")
+            fig = go.Figure(go.Bar(x=cop["lift"], y=cop["rule"], orientation="h", marker_color=BLUE,
+                                   text=[f"lift {l:.1f}  (n={n})" for l, n in zip(cop["lift"], cop["n_baskets"])],
+                                   textposition="outside", cliponaxis=False))
+            style(fig, 330, xaxis=dict(title="Lift", range=[0, cop["lift"].max() * 1.45]), yaxis=dict(showgrid=False),
+                  margin=dict(l=10, r=40, t=10, b=10))
+            show(fig)
 
-    with col_ex2:
-        with st.container(border=True):
-            corr_cols = [
-                "total_price", "total_freight", "distance_km", "seller_handling_days",
-                "carrier_transit_days", "total_delivery_days", "days_late", "review_score",
-            ]
-            corr_data = filt[corr_cols].dropna()
-            if len(corr_data) > 30:
-                corr_matrix = corr_data.corr()
-                labels_clean = [c.replace("_", " ").replace("total ", "").title() for c in corr_matrix.columns]
-                fig_corr = px.imshow(
-                    corr_matrix.values,
-                    x=labels_clean,
-                    y=labels_clean,
-                    color_continuous_scale="RdBu_r",
-                    zmin=-1, zmax=1,
-                    text_auto=".2f",
-                    aspect="auto",
-                )
-                style_fig(fig_corr, title="Pearson Correlation Matrix", height=440, margin=dict(l=20, r=20, t=50, b=60))
-                fig_corr.update_xaxes(tickangle=-35)
-                st.plotly_chart(fig_corr, width="stretch")
+    st.markdown("## Second attempt: risk profiles that lead to a bad review")
+    st.write(
+        "Each order became a basket of tags: seller state, customer region, same/cross-state route, lateness status, "
+        "freight level, distance band, handling speed and category. The target was a 1-2 star review (12.8% of orders). "
+        "FP-Growth and Apriori found the same 4,272 itemsets (1.5 s vs 3.1 s), so we kept FP-Growth."
+    )
+    if rules_risk is None:
+        st.info("rules_bad_review_risk.csv was not found.")
+        return
+    c1, c2 = st.columns([1, 1])
+    conf = c1.slider("Minimum confidence", 0.50, 0.90, 0.70, 0.05)
+    nshow = c2.slider("Rules to show", 5, 15, 10)
+    rk = rules_risk[rules_risk["confidence"] >= conf].sort_values("lift", ascending=False).head(nshow).sort_values("lift")
+    if rk.empty:
+        st.info("No rules meet this confidence threshold.")
+    else:
+        header("Top rules by lift", "Lift 6 means a 1-2 star review is six times more likely than average.")
+        fig = go.Figure(go.Bar(
+            x=rk["lift"], y=[clean_rule(a) for a in rk["antecedent"]], orientation="h", marker_color=RED,
+            text=[f"lift {l:.2f}  |  {c * 100:.0f}% conf  |  {n:,} orders" for l, c, n in zip(rk["lift"], rk["confidence"], rk["n_orders"])],
+            textposition="outside", cliponaxis=False))
+        style(fig, max(380, 58 * len(rk)), xaxis=dict(title="Lift vs 12.8% baseline", range=[0, rk["lift"].max() * 1.7]),
+              yaxis=dict(showgrid=False, tickfont=dict(size=11)), margin=dict(l=10, r=40, t=10, b=10))
+        show(fig)
 
-    insight_box(
-        "Key Finding — Delivery Lateness Outweighs Price in Customer Satisfaction",
-        "Across all numeric variables, <b>days_late</b> exhibits the strongest negative correlation with <b>review_score</b> (~−0.34). "
-        "Meanwhile, order price has virtually zero correlation with rating—proving Brazilian marketplace buyers care far more about promised-date reliability than item cost.",
-        accent=CYAN,
+    c1, c2 = st.columns(2)
+    with c1:
+        header("Low-review rate by lateness status", "Computed from the current selection.")
+        g = filt.dropna(subset=["lateness_bucket", "review_score"]).groupby("lateness_bucket")["review_score"].apply(lambda s: (s <= 2).mean())
+        g = g.reindex(present_buckets)
+        base = low_review_rate(filt)
+        fig = go.Figure(go.Bar(x=[BUCKET_SHORT[b] for b in g.index], y=g.values * 100, marker_color=[BUCKET_COLORS[b] for b in g.index],
+                               text=[f"{v * 100:.0f}%  ({v / base:.1f}x)" for v in g.values], textposition="outside", cliponaxis=False))
+        style(fig, 330, yaxis=dict(title="% 1-2 star reviews", range=[0, 100]))
+        show(fig)
+    with c2:
+        header("Rule quality: confidence vs lift", "Bubble size: number of orders.")
+        fig = px.scatter(rules_risk, x=rules_risk["confidence"] * 100, y="lift", size="n_orders", size_max=22,
+                         color_discrete_sequence=[BLUE], opacity=0.55)
+        style(fig, 330, xaxis=dict(title="Confidence (%)"), yaxis=dict(title="Lift"))
+        show(fig)
+
+    callout(
+        "Delay explains the risk; what is left is handling speed and region",
+        "The strongest rule, a cross-state order to the Southeast delayed more than 7 days, gives a bad review 80.6% of "
+        "the time (lift 6.3). When we removed every rule containing a delay tag, the best remaining profiles (slow seller "
+        "handling combined with Northeast customers or long distance) only reach lift of about 1.6. So fixing delays "
+        "removes most of the risk; slow handling and the far Northeast are the next place to look.",
+    )
+    with st.expander("See all mined risk rules"):
+        t = rules_risk.sort_values("lift", ascending=False).head(100).copy()
+        t["confidence"] = t["confidence"] * 100
+        cols = [c for c in ["antecedent", "n_orders", "support", "confidence", "lift", "conviction"] if c in t]
+        table(t[cols].rename(columns={"confidence": "confidence %"}))
+
+
+# ===========================================================================
+# 8. SELLERS: REDUCTION & CLUSTERING
+# ===========================================================================
+FEATURES = [
+    "total_orders", "total_items", "total_revenue", "total_freight", "avg_price", "avg_freight", "avg_weight_g",
+    "avg_handling_days", "median_handling_days", "avg_transit_days", "avg_delivery_days", "avg_days_late", "late_rate",
+    "seller_shipped_late_rate", "avg_review_score", "low_review_rate", "distinct_categories", "states_served",
+    "avg_distance_km", "freight_ratio", "cross_state_share",
+]
+SKEWED = ["total_orders", "total_items", "total_revenue", "total_freight", "avg_price", "avg_freight", "avg_weight_g",
+          "distinct_categories", "states_served", "freight_ratio"]
+
+
+@st.cache_data(show_spinner=False)
+def seller_matrix(df):
+    X = df[FEATURES].astype(float)
+    X = X.fillna(X.median())
+    for c in SKEWED:
+        X[c] = np.log1p(X[c].clip(lower=0))
+    return ((X - X.mean()) / X.std(ddof=0)).values
+
+
+@st.cache_data(show_spinner=False)
+def pca_summary(X):
+    vals, vecs = np.linalg.eigh(np.cov(X, rowvar=False))
+    o = np.argsort(vals)[::-1]
+    return vals[o], vecs[:, o]
+
+
+@st.cache_data(show_spinner="Running K-Means for k = 2 ... 10")
+def kmeans_sweep(X):
+    from sklearn.cluster import KMeans
+    from sklearn.metrics import silhouette_score
+    rows = []
+    for k in range(2, 11):
+        km = KMeans(n_clusters=k, n_init=10, random_state=42).fit(X)
+        rows.append([k, km.inertia_, silhouette_score(X, km.labels_)])
+    return pd.DataFrame(rows, columns=["k", "inertia", "silhouette"])
+
+
+def nice(c):
+    return c.replace("_", " ").replace("avg ", "average ")
+
+
+def page_sellers():
+    page_intro(
+        "8. Sellers: dimensionality reduction & clustering",
+        "Notebook 05 - PCA, t-SNE, autoencoder, K-Means, Ward, DBSCAN, Mean-Shift, OPTICS",
+        "3,095 sellers described by 21 behaviour features: volume, price, handling and transit time, lateness, "
+        "reviews and reach. Features were median-imputed, the 10 skewed ones were log-transformed, then all were standardized.",
+    )
+    if sellers is None or not all(c in sellers.columns for c in FEATURES):
+        st.info("seller_scorecard.csv was not found or is missing seller feature columns.")
+        return
+    X = seller_matrix(sellers)
+
+    st.markdown("## How many dimensions do we really need? (PCA)")
+    vals, vecs = pca_summary(X)
+    ratio = vals / vals.sum()
+    cum = np.cumsum(ratio)
+    k80, k90, k95 = [int(np.argmax(cum >= t) + 1) for t in (0.80, 0.90, 0.95)]
+    c1, c2 = st.columns([3, 2])
+    with c1:
+        fig = go.Figure()
+        fig.add_bar(x=[f"PC{i + 1}" for i in range(len(ratio))], y=ratio * 100, name="Variance per component", marker_color="#8fb3cf")
+        fig.add_scatter(x=[f"PC{i + 1}" for i in range(len(ratio))], y=cum * 100, name="Cumulative", yaxis="y2",
+                        mode="lines+markers", line=dict(color=BLUE, width=2.5))
+        for t in (80, 90, 95):
+            fig.add_hline(y=t, yref="y2", line_dash="dot", line_color=GREY)
+        style(fig, 360, legend=True, yaxis=dict(title="% of variance"),
+              yaxis2=dict(title="Cumulative %", overlaying="y", side="right", range=[0, 102], showgrid=False),
+              xaxis=dict(tickangle=-45))
+        show(fig)
+    with c2:
+        callout(
+            "Six components keep 80% of the information",
+            f"The first two components hold {cum[1] * 100:.0f}% of the variance; <b>{k80}</b> components are needed for 80%, "
+            f"<b>{k90}</b> for 90% and <b>{k95}</b> for 95%. The 21 features are strongly redundant (for example, orders, "
+            "items and revenue move together), so a 2-D map is a useful summary but loses detail.",
+        )
+    header("What each component means (loadings)", "Red: feature pushes the component up. Blue: pushes it down.")
+    L = pd.DataFrame(vecs[:, :3], index=[nice(f) for f in FEATURES], columns=["PC1", "PC2", "PC3"])
+    fig = go.Figure(go.Heatmap(z=L.values, x=L.columns, y=L.index, zmin=-0.5, zmax=0.5, colorscale="RdBu_r",
+                               text=np.round(L.values, 2), texttemplate="%{text}", textfont=dict(size=10), colorbar=dict(thickness=12)))
+    style(fig, 560, yaxis=dict(autorange="reversed", showgrid=False), margin=dict(l=10, r=10, t=10, b=10))
+    show(fig)
+
+    st.markdown("## Linear vs non-linear reduction")
+    c1, c2 = st.columns(2)
+    with c1:
+        header("t-SNE: neighbourhood preservation", "Trustworthiness of the 2-D map (1 = perfect), by perplexity.")
+        perp = [5, 15, 30, 50, 100]
+        fig = go.Figure()
+        fig.add_scatter(x=perp, y=[0.9708, 0.9798, 0.9794, 0.9772, 0.9754], mode="lines+markers", name="k = 10 neighbours", line=dict(color=BLUE, width=2.5))
+        fig.add_scatter(x=perp, y=[0.9295, 0.9476, 0.9524, 0.9530, 0.9553], mode="lines+markers", name="k = 30 neighbours", line=dict(color=GREEN, width=2.5))
+        fig.add_hline(y=0.8058, line_dash="dot", line_color=RED, annotation_text="2-D PCA baseline (0.81)", annotation_position="bottom right")
+        style(fig, 330, legend=True, xaxis=dict(title="Perplexity", type="category"), yaxis=dict(title="Trustworthiness", range=[0.78, 1.0]))
+        show(fig)
+    with c2:
+        header("Autoencoder vs PCA: reconstruction error", "Test-set MSE by bottleneck size (lower is better).")
+        ks = ["2", "3", "6", "9"]
+        fig = go.Figure()
+        fig.add_bar(x=ks, y=[0.5255, 0.4052, 0.1808, 0.0816], name="PCA", marker_color="#b9c6d2")
+        fig.add_bar(x=ks, y=[0.4044, 0.3001, 0.1116, 0.0684], name="Autoencoder", marker_color=BLUE,
+                    text=["-23%", "-26%", "-38%", "-16%"], textposition="outside")
+        style(fig, 330, legend=True, barmode="group", xaxis=dict(title="Latent dimensions"), yaxis=dict(title="Test MSE"))
+        show(fig)
+    st.caption("t-SNE and autoencoder results are from Notebook 05 (these are slow to retrain, so the dashboard reads the saved numbers).")
+    callout(
+        "Non-linear methods keep more structure",
+        "A 2-D PCA preserves 81% of local neighbourhoods; t-SNE preserves about 98%. The autoencoder reconstructs the "
+        "held-out sellers 16-38% better than PCA at the same size, with its biggest gain at 6 latent dimensions. "
+        "Perplexity 15 gave the best local score, so that map is used below.",
     )
 
-# ──────────────────────────────────────────────────────────────
-# FOOTER
-# ──────────────────────────────────────────────────────────────
+    header("Seller map", "Each dot is a seller.")
+    c1, c2 = st.columns([1, 1])
+    methods = {"PCA": ("pca_dim1", "pca_dim2"), "t-SNE": ("tsne_dim1", "tsne_dim2"), "Autoencoder": ("ae_dim1", "ae_dim2")}
+    methods = {k: v for k, v in methods.items() if all(c in sellers.columns for c in v)}
+    emb = c1.radio("Embedding", list(methods), horizontal=True)
+    by = c2.radio("Colour by", ["Seller tier", "K-Means cluster"], horizontal=True)
+    sc = sellers.copy()
+    sc["K-Means cluster"] = "Cluster " + sc["cluster_kmeans"].astype(str) if "cluster_kmeans" in sc else "n/a"
+    xcol, ycol = methods[emb]
+    col = "tier" if by == "Seller tier" else "K-Means cluster"
+    fig = px.scatter(sc, x=xcol, y=ycol, color=col, opacity=0.6, color_discrete_map=TIER_COLORS if col == "tier" else None,
+                     color_discrete_sequence=[BLUE, ORANGE, GREEN, RED, GREY, "#7a5fa0"],
+                     hover_data={"total_orders": True, "late_rate": ":.2f", "avg_review_score": ":.2f", xcol: False, ycol: False},
+                     category_orders={"tier": list(TIER_COLORS)})
+    fig.update_traces(marker=dict(size=5))
+    style(fig, 460, legend=True, xaxis=dict(title=f"{emb} 1", showgrid=True, gridcolor=GRID), yaxis=dict(title=f"{emb} 2"))
+    show(fig)
+
+    st.markdown("## Clustering: does the data contain natural groups?")
+    sw = kmeans_sweep(X)
+    c1, c2 = st.columns(2)
+    with c1:
+        header("Elbow: within-cluster variance", "No sharp elbow, a sign of a continuum rather than separate groups.")
+        fig = go.Figure(go.Scatter(x=sw["k"], y=sw["inertia"], mode="lines+markers", line=dict(color=BLUE, width=2.5)))
+        style(fig, 300, xaxis=dict(title="Number of clusters k", dtick=1), yaxis=dict(title="Inertia"))
+        show(fig)
+    with c2:
+        header("Silhouette score by k", "Closer to 1 means clearer clusters.")
+        bestk = int(sw.loc[sw["silhouette"].idxmax(), "k"])
+        fig = go.Figure(go.Bar(x=sw["k"], y=sw["silhouette"], marker_color=[GREEN if k == bestk else "#b9c6d2" for k in sw["k"]],
+                               text=[f"{v:.2f}" for v in sw["silhouette"]], textposition="outside", cliponaxis=False))
+        style(fig, 300, xaxis=dict(title="Number of clusters k", dtick=1), yaxis=dict(title="Silhouette", range=[0, max(sw["silhouette"]) * 1.3]))
+        show(fig)
+
+    header("Five algorithms compared", "Results from Notebook 05 on the same standardized 21-feature matrix.")
+    table(pd.DataFrame([
+        ["K-Means (k=3)", 3, "0.190", "5% / 40% / 55% of sellers", "Best silhouette among k-means runs"],
+        ["Ward hierarchical (k=3)", 3, "0.157", "51% / 40% / 9%", "Similar split, lower silhouette"],
+        ["DBSCAN (eps 4.37, minPts 42)", 1, "n/a", "1 cluster, 3.2% noise", "Same single cluster for every eps tried"],
+        ["Mean-Shift (q = 0.25)", 7, "0.333", "96% in one mode", "High silhouette is misleading: 6 tiny outlier groups"],
+        ["OPTICS (xi 0.04)", 1, "n/a", "1 cluster, 0% noise", "No density valleys, also in the 6-D latent space"],
+    ], columns=["Algorithm", "Clusters", "Silhouette", "Sizes", "Reading"]))
+    callout(
+        "Sellers form a continuum, so we segment by business rules",
+        "Silhouettes never exceed 0.19 for balanced clusterings, and the density methods (DBSCAN, OPTICS) find a single "
+        "blob. Rather than forcing arbitrary clusters, we used K-Means as supporting evidence and defined four "
+        "interpretable seller tiers from volume, review score, late rate and price, plus a 0-100 reliability score.",
+    )
+
+    st.markdown("## Seller tiers")
+    tiers = [t for t in TIER_COLORS if t in set(sellers["tier"])]
+    cnt = sellers["tier"].value_counts().reindex(tiers)
+    c1, c2 = st.columns([2, 3])
+    with c1:
+        header("Sellers per tier")
+        fig = go.Figure(go.Bar(x=cnt.values, y=cnt.index, orientation="h", marker_color=[TIER_COLORS[t] for t in cnt.index],
+                               text=[f"{v:,}  ({v / cnt.sum() * 100:.0f}%)" for v in cnt.values], textposition="outside", cliponaxis=False))
+        style(fig, 280, xaxis=dict(title="Sellers", range=[0, cnt.max() * 1.35]), yaxis=dict(autorange="reversed", showgrid=False),
+              margin=dict(l=10, r=40, t=10, b=10))
+        show(fig)
+    with c2:
+        header("Reliability score by tier (0-100)")
+        fig = go.Figure()
+        for t in tiers:
+            fig.add_box(y=sellers.loc[sellers["tier"] == t, "reliability_score"].dropna(), name=t, marker_color=TIER_COLORS[t], boxpoints=False)
+        style(fig, 280, yaxis=dict(title="Reliability score"), xaxis=dict(showgrid=False))
+        show(fig)
+
+    prof_cols = ["total_orders", "avg_price", "avg_handling_days", "avg_transit_days", "late_rate", "avg_review_score", "avg_distance_km"]
+    prof = sellers.groupby("tier")[prof_cols].median().reindex(tiers)
+    norm = (prof - prof.min()) / (prof.max() - prof.min()).replace(0, 1)
+    header("Typical seller in each tier (median)", "Shading is scaled within each column; numbers are the actual medians.")
+    txt = prof.copy()
+    fmt = {"total_orders": "{:.0f}", "avg_price": "{:.0f}", "avg_handling_days": "{:.1f}", "avg_transit_days": "{:.1f}",
+           "late_rate": "{:.0%}", "avg_review_score": "{:.2f}", "avg_distance_km": "{:.0f}"}
+    text = [[fmt[c].format(txt.loc[t, c]) for c in prof_cols] for t in tiers]
+    fig = go.Figure(go.Heatmap(z=norm.values, x=[nice(c) for c in prof_cols], y=tiers, text=text, texttemplate="%{text}",
+                               colorscale="Blues", showscale=False, textfont=dict(size=13)))
+    style(fig, 260, yaxis=dict(autorange="reversed", showgrid=False), xaxis=dict(side="top", showgrid=False))
+    show(fig)
+
+    st.markdown("## Sellers to coach first")
+    st.write("At-risk sellers with the most orders: the largest effect on customers for the least effort.")
+    ar = sellers[(sellers["tier"] == "Tier 4 - At-risk")].nlargest(15, "total_orders")
+    show_cols = ["seller_id", "seller_state", "total_orders", "late_rate", "avg_review_score", "avg_handling_days", "reliability_score"]
+    show_cols = [c for c in show_cols if c in ar]
+    tbl = ar[show_cols].copy()
+    tbl["seller_id"] = tbl["seller_id"].str[:8] + "..."
+    table(tbl.rename(columns={c: nice(c) for c in show_cols}).style.format(
+        {"late rate": "{:.0%}", "average review score": "{:.2f}", "average handling days": "{:.1f}", "reliability score": "{:.0f}", "total orders": "{:,.0f}"}))
+
+
+# ===========================================================================
+# CHALLENGES & DECISIONS
+# ===========================================================================
+CHALLENGES = {
+    "Data processing": [
+        ("Joining child tables multiplied rows", "Orders with several items or payments would be duplicated by a plain join.",
+         "Aggregated items, payments and reviews to one row per order first, then joined.", "112,650 item rows became 98,666 order rows; 99,441 orders kept one row each."),
+        ("Geolocation table was dirty", "1,000,163 rows, 261,831 exact duplicates, and some coordinates in the Atlantic Ocean.",
+         "Kept only points inside Brazil's bounding box and took the median point per zip prefix.", "19,010 clean zip centroids used for Haversine distances."),
+        ("Misspelled and inconsistent columns", "`product_name_lenght`, a UTF-8 BOM, and Portuguese category names.",
+         "Renamed columns, stripped the BOM, merged the English translation table.", "Joins work without silent mismatches; 100% referential integrity checked."),
+        ("Noisy daily series", "Weekday/weekend swings hide the trend, but Black Friday is a real spike.",
+         "Compared SMA, EWMA and rolling median at 7, 14 and 30 days.", "Short windows for trend; raw series kept for events."),
+    ],
+    "Statistics & transformations": [
+        ("Heavy right skew", "Price skewness 9.7, freight 12.1, approval time 57.",
+         "Used medians and rank-based tests; compared log, square root, Box-Cox, Yeo-Johnson.", "Log cut price skewness from 9.7 to 0.3."),
+        ("Negative values in days late", "Early deliveries make days late negative, so log and Box-Cox fail.",
+         "Used Yeo-Johnson for that variable.", "Skewness 2.0 reduced to -0.8."),
+        ("Significance is trivial with 100k rows", "p-values were essentially 0 for every test.",
+         "Added effect sizes (Cliff's delta, Cramer's V).", "Delta -0.55 (large), V 0.43 (moderate to strong)."),
+        ("Target leakage when encoding", "Target encoding can leak the label into training rows.",
+         "Out-of-fold target encoding with 5-fold stratified splits; test categories use training statistics only.", "No row sees its own label."),
+    ],
+    "Outliers & missing values": [
+        ("IQR and Z-score disagree", "IQR flagged 15,807 item weights, Z-score only 2,955.",
+         "Treated them as candidates, not errors; compared winsorizing, log and trimming.", "Winsorized data keeps all rows and lowers the spread."),
+        ("58.7% of reviews have no text", "Dropping them would bias the review analysis.",
+         "Tested whether missingness is related to rating and lateness.", "Comment rate 78% for 1 star vs 36% for 5 stars; chi2 = 1110, p ~ 1e-239. Missing not at random."),
+        ("Which imputation to trust", "Weight is in grams, dimensions in cm, so errors are not comparable across features.",
+         "Hid 15% of known values and scored mean, median, kNN and MICE within each feature.", "MICE best on RMSE for all four; median best on MAE for weight."),
+        ("Categorical column had no gaps", "Mode imputation could not be tested on real missing values.",
+         "Masked 15% of known categories and filled them with the mode.", "Demonstrated the method honestly on masked data."),
+    ],
+    "Text mining": [
+        ("Stopword lists delete negations", "Removing *nao*, *nunca*, *sem* turns \"did not receive\" into \"received\".",
+         "Custom Portuguese stopword list that keeps nine negation words; added bigrams.", "Complaints such as \"nao recebi\" and \"nao entregue\" surface at the top."),
+        ("Frequent words are not distinctive", "Common words rank high in both groups.",
+         "Ranked by the TF-IDF difference between 1-star and 5-star reviews.", "Clear complaint vs praise vocabularies."),
+    ],
+    "Graph & association rules": [
+        ("Community detection found one group", "The network is dense (density 0.56) and routed through SP.",
+         "Used PageRank, betweenness and route-level metrics instead.", "SP is the hub (61% of inter-state outflow)."),
+        ("Rare routes look extreme by chance", "Routes with a handful of orders can show 100% late.",
+         "Only ranked routes with at least 100 orders (adjustable).", "70 of 409 routes qualify."),
+        ("Almost no multi-category baskets", "97.9% of orders have one category; only 786 baskets.",
+         "Changed the question: tagged each order with route, delay, freight, distance, handling and mined rules for a bad review.", "95,830 transactions x 55 items, 4,272 itemsets."),
+        ("Delay tags dominate every rule", "The obvious cause hides everything else.",
+         "Re-ran the ranking excluding rules with a delay tag.", "Slow handling plus Northeast reaches lift about 1.6 even without delay."),
+    ],
+    "Dimensionality reduction & clustering": [
+        ("Missing values and scale in seller features", "118-125 sellers lack timing features; counts and revenue are skewed.",
+         "Median imputation, log1p for 10 skewed features, standardization.", "No NaNs; features comparable."),
+        ("Choosing t-SNE perplexity", "Plots look different for every setting.",
+         "Scored perplexity 5 to 100 with trustworthiness.", "Best local score at perplexity 15 (0.98 vs 0.81 for PCA)."),
+        ("Is non-linear worth it?", "PCA is simpler and interpretable.",
+         "Trained an autoencoder and compared test MSE with PCA at equal size.", "16-38% lower error, so the non-linear map is used for display."),
+        ("Density methods found one cluster", "DBSCAN and OPTICS returned a single cluster; Mean-Shift put 96% in one mode.",
+         "Treated this as a finding (a continuum) and did not force clusters; K-Means k=3 used as evidence, business-rule tiers as the output.", "Four tiers and a 0-100 reliability score."),
+    ],
+}
+
+
+def page_challenges():
+    page_intro(
+        "Challenges & decisions",
+        "How problems were handled at each step of the analysis",
+        "Real data rarely behaves. This page lists what went wrong at each stage, what we did about it, and the evidence that the choice worked.",
+    )
+    for stage, items in CHALLENGES.items():
+        st.markdown(f"## {stage}")
+        for title, problem, action, result in items:
+            with st.expander(title):
+                st.markdown(f"**Problem.** {problem}")
+                st.markdown(f"**What we did.** {action}")
+                st.markdown(f"**Result.** {result}")
+
+
+# ---------------------------------------------------------------------------
+# Router
+# ---------------------------------------------------------------------------
+ROUTES = {
+    PAGES[0]: page_overview, PAGES[1]: page_processing, PAGES[2]: page_delivery, PAGES[3]: page_statistics,
+    PAGES[4]: page_outliers, PAGES[5]: page_text, PAGES[6]: page_geo, PAGES[7]: page_rules,
+    PAGES[8]: page_sellers, PAGES[9]: page_challenges,
+}
+ROUTES[page]()
+
 st.markdown("---")
-st.markdown(
-    "<div style='text-align:center; color:#64748b; font-size:0.78rem; padding: 6px 0;'>"
-    "📦 <b>DELTA</b> — Delivery Estimate, Lateness & Trust Analytics &nbsp;•&nbsp; DS3030 Data Analytics &nbsp;•&nbsp; "
-    "Built with Streamlit & Plotly &nbsp;•&nbsp; Olist Brazilian E-Commerce (Kaggle)"
-    "</div>",
-    unsafe_allow_html=True,
-)
+st.caption("DS3030 Data Analytics - Olist Brazilian E-Commerce (Kaggle). Built with Streamlit and Plotly.")
