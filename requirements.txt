@@ -9,3 +9,4 @@ networkx>=3.1
 mlxtend>=0.22.0
 streamlit>=1.28.0
 jupyter>=1.0.0
+statsmodels>=0.14.0
